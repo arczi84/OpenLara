@@ -74,6 +74,10 @@ The Details menu offers 320x240, 512x384, 640x480, 800x600, 1024x768 and
 in-place SDL mode change would destroy the MiniGL context and all GL objects.
 The same modes can be selected for one launch with `-res WIDTHxHEIGHT`.
 
+The screen colour depth can be selected with `-depth 16`, `-depth 24` or
+`-depth 32`. The default and PiStorm3D-tested value is 32. This setting is
+independent from the 16-bit OpenGL Z buffer.
+
 MiniGL's SDL swap does not wait for vertical blank.  With VSync enabled (the
 default), the Amiga main loop therefore uses a 50 FPS software cap.  This
 prevents menus from spinning at 100% CPU and gives the priority-1 AHI mixer a

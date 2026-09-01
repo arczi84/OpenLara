@@ -14,7 +14,6 @@
 #undef Node
 
 #define WND_TITLE       "OpenLara MiniGL"
-#define DISPLAY_DEPTH   32
 #define FRAME_INTERVAL_MS 20
 #define SND_FREQ        44100
 // Match the Amiga SDL/AHI backend's own ~46 ms default.  A 512-frame buffer
@@ -48,6 +47,7 @@ static int joystickCount;
 static vec2 joyL, joyR;
 static FILE *startupLog;
 static bool disableAudio;
+static int displayDepth = 32;
 
 struct VideoMode {
     int width;
@@ -448,10 +448,11 @@ static void inputUpdate() {
 
 static void printUsage() {
     puts(versionTag);
-    puts("OpenLara-MiniGL [-nosound] [-res WIDTHxHEIGHT] [-d DATA_DIRECTORY] [-l LEVEL_FILE]");
+    puts("OpenLara-MiniGL [-nosound] [-res WIDTHxHEIGHT] [-depth BITS] [-d DATA_DIRECTORY] [-l LEVEL_FILE]");
     puts("  -d DIR   directory containing original Tomb Raider data");
     puts("  -l FILE  load a specific level file");
     puts("  -res WxH select 320x240, 512x384, 640x480, 800x600, 1024x768 or 1280x960");
+    puts("  -depth N screen colour depth: 16, 24 or 32 (default and recommended: 32)");
     puts("  -nosound disable SDL/AHI audio for diagnostics");
     puts("  -h       show this help");
 }
@@ -504,6 +505,19 @@ static int parseArguments(int argc, char **argv, char *&levelName) {
             return 5;
         } else if (!strcmp(argv[i], "-nosound")) {
             disableAudio = true;
+        } else if (!strcmp(argv[i], "-depth")) {
+            if (i + 1 >= argc) {
+                puts("OpenLara: -depth needs 16, 24 or 32");
+                return 10;
+            }
+            char *end = NULL;
+            long value = strtol(argv[++i], &end, 10);
+            if (!end || *end || (value != 16 && value != 24 && value != 32)) {
+                printf("OpenLara: unsupported screen depth: %s\n", argv[i]);
+                printUsage();
+                return 10;
+            }
+            displayDepth = (int)value;
         } else if (!strcmp(argv[i], "-res")) {
             if (i + 1 >= argc) {
                 puts("OpenLara: -res needs WIDTHxHEIGHT");
@@ -593,23 +607,24 @@ int main(int argc, char **argv) {
     if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
         traceSDLError("Joystick disabled");
 
-    SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   displayDepth == 16 ? 5 : 8);
+    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, displayDepth == 16 ? 6 : 8);
+    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  displayDepth == 16 ? 5 : 8);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-    // PiStorm3D renders into a native RGBA8/BGRA32 bitmap.  Do not inherit
-    // a 16-bit Workbench mode here: the SDL surface must request 32-bit
-    // colour explicitly.  SDL_GL_DEPTH_SIZE above is the Z buffer depth.
+    // PiStorm3D renders into a native RGBA8/BGRA32 bitmap, so 32-bit is the
+    // default and tested mode. -depth allows explicit SDL display-depth
+    // experiments; SDL_GL_DEPTH_SIZE above independently controls the Z
+    // buffer and always remains 16-bit.
     const VideoMode &videoMode = videoModes[resolutionIndex];
     {
         char info[96];
-        snprintf(info, sizeof(info), "06 SDL_SetVideoMode %dx%dx32: begin",
-                 videoMode.width, videoMode.height);
+        snprintf(info, sizeof(info), "06 SDL_SetVideoMode %dx%dx%d: begin",
+                 videoMode.width, videoMode.height, displayDepth);
         traceStartup(info);
     }
-    screen = SDL_SetVideoMode(videoMode.width, videoMode.height, DISPLAY_DEPTH, SDL_OPENGL);
+    screen = SDL_SetVideoMode(videoMode.width, videoMode.height, displayDepth, SDL_OPENGL);
     if (!screen) {
         traceSDLError("06 SDL_SetVideoMode FAILED");
         closeStartupLog();
