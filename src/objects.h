@@ -903,6 +903,12 @@ struct Crystal : Controller {
 
     void bake() {
         ASSERT(!environment);
+#ifdef __AMIGA_MINIGL__
+        // PiStorm3D has no off-screen target to bake into.  render() already
+        // provides the white texture fallback when environment stays NULL.
+        return;
+#endif
+
         #ifdef FFP
             uint32 opt;
             if (Core::support.texCUBE) {

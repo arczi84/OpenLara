@@ -8,7 +8,7 @@
 
 #define INV_MAX_ITEMS  32
 #define INV_MAX_RADIUS 688.0f
-#if defined(_OS_PSP) || defined(_OS_3DS) || defined(_OS_GCW0)
+#if defined(_OS_PSP) || defined(_OS_3DS) || defined(_OS_GCW0) || defined(__AMIGA_MINIGL__)
     #define INV_BG_SIZE    256
 #else
     #define INV_BG_SIZE    512
@@ -25,6 +25,15 @@
 #define LINE_HEIGHT           20.0f
 
 static const struct OptionItem *waitForKey = NULL;
+
+#ifdef __AMIGA_MINIGL__
+static const char *getAmigaResolutionName(uint8 value) {
+    static const char *names[] = {
+        "320x240", "512x384", "640x480", "800x600", "1024x768", "1280x960"
+    };
+    return value < COUNT(names) ? names[value] : names[Core::Settings::AMIGA_RES_640_480];
+}
+#endif
 
 struct OptionItem {
     enum Type {
@@ -76,10 +85,20 @@ struct OptionItem {
             alpha = uint8(t * 255.0f);
         }
 
-        UI::textOut(vec2(x, y), vStr, UI::aCenter, w, alpha, UI::SHADE_GRAY); // color as StringID
+#ifdef __AMIGA_MINIGL__
+        const char *customValue = oStr == STR_OPT_RESOLUTION ? getAmigaResolutionName(value) : NULL;
+        if (customValue)
+            UI::textOut(vec2(x, y), customValue, UI::aCenter, w, alpha, UI::SHADE_GRAY);
+        else
+#endif
+            UI::textOut(vec2(x, y), vStr, UI::aCenter, w, alpha, UI::SHADE_GRAY); // color as StringID
 
         if (type == TYPE_PARAM && active) {
+#ifdef __AMIGA_MINIGL__
+            int maxWidth = customValue ? UI::getTextSize(customValue).x : UI::getTextSize(STR[color + value]).x;
+#else
             int maxWidth = UI::getTextSize(STR[color + value]).x;
+#endif
             maxWidth = maxWidth / 2 + 8;
             x += w * 0.5f;
             if (maxValue != 0xFF) {
@@ -150,10 +169,15 @@ static const OptionItem optDetail[] = {
 #if defined(__SDL3__) || defined(__SDL2__) || defined(_OS_WIN)
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_MODE,            SETTINGS(detail.displaymode), STR_DISPLAYMODE_WINDOWED, 0, 1),
 #endif
+#ifdef __AMIGA_MINIGL__
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_RESOLUTION,      SETTINGS(resolution), STR_EMPTY, 0, Core::Settings::AMIGA_RES_MAX - 1),
+#endif
 #ifdef INV_QUALITY
 #ifndef FFP
     OptionItem(OptionItem::TYPE_PARAM,  STR_OPT_SCALE,      SETTINGS(detail.scale), STR_SCALE_100, 0, 3),
 #endif
+#endif
+#if defined(INV_QUALITY) || defined(__AMIGA_MINIGL__)
     OptionItem(OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS(detail.vsync), STR_OFF, 0, 1),
 #endif
 #ifdef INV_STEREO
@@ -1402,7 +1426,15 @@ struct Inventory {
 
         for (int i = 0; i < COUNT(background); i++) {
             if (!background[i]) {
+#ifdef __AMIGA_MINIGL__
+                // PiStorm3D's packed RGB565 upload path is not reliable on
+                // real hardware yet.  The inventory capture is rewritten
+                // every time the menu opens, so use the backend's verified
+                // RGBA8 path here instead.
+                background[i] = new Texture(INV_BG_SIZE, INV_BG_SIZE, 1, FMT_RGBA, OPT_TARGET);
+#else
                 background[i] = new Texture(INV_BG_SIZE, INV_BG_SIZE, 1, FMT_RGB16, OPT_TARGET);
+#endif
             }
         }
 
@@ -1478,7 +1510,29 @@ struct Inventory {
 #if defined(FFP) && defined(_GAPI_GL)
         GAPI::Texture* target = Core::active.target;
         if (target) {
-            
+
+#ifdef __AMIGA_MINIGL__
+            // PiStorm3D submits the accumulated frame only on display
+            // switch, while its glReadPixels reads the visible RastPort.
+            // Present this one gameplay frame before capturing it for the
+            // inventory background.
+            mglSwitchDisplay();
+
+            uint8_t* src = new uint8_t[target->width * target->height * 3];
+            uint8_t* dst = new uint8_t[target->width * target->height * 4];
+            glReadPixels(0, 0, target->width, target->height, GL_RGB, GL_UNSIGNED_BYTE, src);
+
+            for (int i = 0; i < target->width * target->height; i++) {
+                uint8_t r = src[i * 3 + 0];
+                uint8_t g = src[i * 3 + 1];
+                uint8_t b = src[i * 3 + 2];
+                uint8_t gray = (uint8_t)((77 * r + 150 * g + 29 * b) >> 8);
+                dst[i * 4 + 0] = gray;
+                dst[i * 4 + 1] = gray;
+                dst[i * 4 + 2] = gray;
+                dst[i * 4 + 3] = 255;
+            }
+#else
             uint32_t* src = new uint32_t[target->width * target->height];
             uint16_t* dst = new uint16_t[target->width * target->height];
             glReadPixels(0, 0, target->width, target->height, GL_RGBA, GL_UNSIGNED_BYTE, src);
@@ -1491,6 +1545,7 @@ struct Inventory {
                 uint8_t gray = (uint8_t)(0.299f * r  + 0.587f * g + 0.114f * b);
                 dst[i] = ((gray >> 4) << 11) | ((gray >> 3) << 5) | (gray >> 3);
             }
+#endif
 
             target->update(dst);
 

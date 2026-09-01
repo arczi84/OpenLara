@@ -7,7 +7,68 @@
     //#define _DEBUG_SHADERS "../../OpenLara/src/shaders/"
 #endif
 
-#ifdef _OS_WIN
+#if defined(__AMIGA_MINIGL__)
+    // AmigaOS declares a global Exec `Node`, while OpenLara has its own Node
+    // type.  Rename the SDK declaration locally while importing MiniGL.
+    #define Node AmigaExecNode
+    #include <proto/minigl.h>
+    #include <clib/minigl_open_protos.h>
+    #include <mgl/gl.h>
+    #undef Node
+
+    // Old Intuition compatibility headers leak this generic macro.
+    #ifdef ACTIVATE
+        #undef ACTIVATE
+    #endif
+
+    // MiniGL exposes an OpenGL 1.x fixed-function subset.  These aliases let
+    // the common texture declarations compile while the FFP path keeps the
+    // unsupported texture types disabled at runtime.
+    #define GL_CLAMP_TO_EDGE                 GL_CLAMP
+    #define GL_TEXTURE_3D                    GL_TEXTURE_2D
+    #define GL_TEXTURE_WRAP_R                GL_TEXTURE_WRAP_T
+    #define GL_TEXTURE_CUBE_MAP              GL_TEXTURE_2D
+    #define GL_TEXTURE_CUBE_MAP_POSITIVE_X   GL_TEXTURE_2D
+    #define GL_TEXTURE_COMPARE_MODE          GL_TEXTURE_ENV_MODE
+    #define GL_TEXTURE_COMPARE_FUNC          GL_DEPTH_FUNC
+    #define GL_COMPARE_REF_TO_TEXTURE        GL_LEQUAL
+    #define GL_RG                            GL_RGBA
+    #define GL_RG32F                         GL_RGBA
+    #define GL_RG16F                         GL_RGBA
+    #define GL_RGBA32F                       GL_RGBA
+    #define GL_RGBA16F                       GL_RGBA
+    #define GL_HALF_FLOAT                    GL_UNSIGNED_BYTE
+    #define GL_R8                            GL_LUMINANCE
+    #define GL_RED                           GL_LUMINANCE
+    #define GL_UNSIGNED_SHORT_5_6_5          MGL_UNSIGNED_SHORT_5_6_5
+    #define GL_UNSIGNED_SHORT_5_5_5_1        MGL_UNSIGNED_SHORT_4_4_4_4
+    #define GL_TEXTURE_GEN_R                 GL_TEXTURE_GEN_T
+    #define GL_R                             GL_T
+    #define GL_REFLECTION_MAP                GL_SPHERE_MAP
+
+    #define glTexImage3D(...)                ((void)0)
+    // Integer OpenGL normals are normalized to [-1, 1]; MiniGL exposes
+    // glNormal3f only, so preserve that conversion explicitly.
+    #define glNormal3s(x, y, z)              glNormal3f((GLfloat)(x) * (1.0f / 32767.0f), (GLfloat)(y) * (1.0f / 32767.0f), (GLfloat)(z) * (1.0f / 32767.0f))
+    #define glVertex3s(x, y, z)              glVertex3f((GLfloat)(x), (GLfloat)(y), (GLfloat)(z))
+
+    // VBOs are deliberately disabled for this target.  The common Mesh code
+    // still has to parse its unreachable VBO branch, so provide harmless
+    // compile-time shims for entry points absent from MiniGL.
+    #define GL_ELEMENT_ARRAY_BUFFER          0
+    #define GL_ARRAY_BUFFER                  0
+    #define GL_DYNAMIC_DRAW                  0
+    #define GL_STATIC_DRAW                   0
+    #define glGenBuffers(...)                ((void)0)
+    #define glDeleteBuffers(...)             ((void)0)
+    #define glBindBuffer(...)                ((void)0)
+    #define glBufferData(...)                ((void)0)
+    #define glBufferSubData(...)             ((void)0)
+    #define glNormalPointer(...)             ((void)0)
+
+    #define GL_TEXTURE_MAX_ANISOTROPY_EXT    0
+    #define GL_TEXTURE_MAX_LEVEL             0
+#elif defined(_OS_WIN)
     #include <gl/GL.h>
     #include <gl/glext.h>
     #include <gl/wglext.h>
@@ -910,17 +971,53 @@ namespace GAPI {
 
             void *pix = (width == origWidth && height == origHeight && depth == origDepth) ? data : NULL;
 
+#ifdef __AMIGA_MINIGL__
+            // Unlike desktop OpenGL, the PiStorm3D MiniGL backend uploads
+            // immediately and does not accept a NULL pixels pointer.  Back
+            // empty/render-target textures with zeroes so texture allocation
+            // is valid before copyTarget()/update() fills them.
+            uint8 *uploadData = NULL;
+            if (pix && fmt == FMT_LUMINANCE) {
+                uploadData = new uint8[width * height * 4];
+                const uint8 *src = (const uint8*)pix;
+                for (int i = 0; i < width * height; i++) {
+                    uploadData[i * 4 + 0] = src[i];
+                    uploadData[i * 4 + 1] = src[i];
+                    uploadData[i * 4 + 2] = src[i];
+                    uploadData[i * 4 + 3] = 255;
+                }
+                pix = uploadData;
+            } else if (!pix) {
+                int bytesPerPixel = desc.type == GL_UNSIGNED_BYTE ?
+                                    (desc.fmt == GL_RGB ? 3 : 4) : 2;
+                uploadData = new uint8[width * height * bytesPerPixel];
+                memset(uploadData, 0, width * height * bytesPerPixel);
+                pix = uploadData;
+            }
+#endif
+
             if (isVolume) {
                 glTexImage3D(target, 0, desc.ifmt, width, height, depth, 0, desc.fmt, desc.type, pix);
             } else if (isCube) {
+#ifdef __AMIGA_MINIGL__
+                // Cubemaps are disabled on this backend.  OpenLara still
+                // creates its dummy whiteCube, represented here by one 2D
+                // fallback texture rather than six invalid target enums.
+                glTexImage2D(GL_TEXTURE_2D, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
+#else
                 for (int i = 0; i < 6; i++) {
                     glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
                 }
+#endif
             } else {
                 glTexImage2D(target, 0, desc.ifmt, width, height, 0, desc.fmt, desc.type, pix);
             }
 
-            if (pix != data) {
+#ifdef __AMIGA_MINIGL__
+            delete[] uploadData;
+#endif
+
+            if (data && (width != origWidth || height != origHeight || depth != origDepth)) {
                 update(data);
             }
         }
@@ -933,6 +1030,17 @@ namespace GAPI {
 
         FormatDesc getFormat() {
             FormatDesc desc = formats[fmt];
+
+            #ifdef __AMIGA_MINIGL__
+                // The PiStorm3D texture uploader has no single-channel
+                // GL_LUMINANCE source format.  init()/update() expand it to
+                // RGBA8, which is a native and verified upload path.
+                if (fmt == FMT_LUMINANCE) {
+                    desc.ifmt = GL_RGBA;
+                    desc.fmt  = GL_RGBA;
+                    desc.type = GL_UNSIGNED_BYTE;
+                }
+            #endif
 
             if ((fmt == FMT_RG_FLOAT || fmt == FMT_RG_HALF) && !Core::support.texRG) {
                 desc.ifmt = (fmt == FMT_RG_FLOAT) ? GL_RGBA32F : GL_RGBA16F;
@@ -996,6 +1104,22 @@ namespace GAPI {
             ASSERT((opt & (OPT_VOLUME | OPT_CUBEMAP)) == 0);
             bind(0);
             FormatDesc desc = getFormat();
+#ifdef __AMIGA_MINIGL__
+            if (fmt == FMT_LUMINANCE) {
+                uint8 *rgba = new uint8[origWidth * origHeight * 4];
+                const uint8 *src = (const uint8*)data;
+                for (int i = 0; i < origWidth * origHeight; i++) {
+                    rgba[i * 4 + 0] = src[i];
+                    rgba[i * 4 + 1] = src[i];
+                    rgba[i * 4 + 2] = src[i];
+                    rgba[i * 4 + 3] = 255;
+                }
+                glTexSubImage2D(target, 0, 0, 0, origWidth, origHeight,
+                                GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+                delete[] rgba;
+                return;
+            }
+#endif
             glTexSubImage2D(target, 0, 0, 0, origWidth, origHeight, desc.fmt, desc.type, data);
         }
 
@@ -1244,7 +1368,7 @@ namespace GAPI {
 
 
     bool extSupport(const char *str) {
-        #if !defined(_GAPI_GLES2) && !_OS_MAC && !defined(__MORPHOS__) && !defined(__amigaos4__)
+        #if !defined(_GAPI_GLES2) && !_OS_MAC && !defined(__MORPHOS__) && !defined(__amigaos4__) && !defined(__AMIGA_MINIGL__)
         if (glGetStringi != NULL) {
             GLint count = 0;
             glGetIntegerv(GL_NUM_EXTENSIONS, &count); 
@@ -1453,10 +1577,19 @@ namespace GAPI {
         support.texNPOT = extSupport("_texture_npot") || extSupport("_texture_non_power_of_two");
         support.texCUBE = extSupport("_texture_cube_map");
 
+        #ifdef __AMIGA_MINIGL__
+            // The V3D MiniGL extension string advertises neither feature;
+            // keep the fallback paths explicit even if that string changes.
+            support.texNPOT = false;
+            support.texCUBE = false;
+        #endif
+
         glEnable(GL_TEXTURE_2D);
         glEnableClientState(GL_TEXTURE_COORD_ARRAY);
         glEnableClientState(GL_COLOR_ARRAY);
-        glEnableClientState(GL_NORMAL_ARRAY);
+        #ifndef __AMIGA_MINIGL__
+            glEnableClientState(GL_NORMAL_ARRAY);
+        #endif
         glEnableClientState(GL_VERTEX_ARRAY);
             
         glAlphaFunc(GL_GREATER, 0.5f);
@@ -1689,10 +1822,22 @@ namespace GAPI {
 
     void copyTarget(Texture *dst, int xOffset, int yOffset, int x, int y, int width, int height) {
         Core::active.textures[0] = NULL;
+#ifdef __AMIGA_MINIGL__
+        // MiniGL has no glCopyTexSubImage2D entry point and its readback path
+        // supports RGB8 only.  Read back the small FFP target and upload it.
+        uint8 *pixels = new uint8[width * height * 3];
+        glReadPixels(x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+        glBindTexture(GL_TEXTURE_2D, dst->ID);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, xOffset, yOffset, width, height,
+                        GL_RGB, GL_UNSIGNED_BYTE, pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        delete[] pixels;
+#else
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, dst->ID);
         glCopyTexSubImage2D(GL_TEXTURE_2D, 0, xOffset, yOffset, x, y, width, height);
         glBindTexture(GL_TEXTURE_2D, 0);
+#endif
     }
 
     void setFullscreen(bool enable) {
@@ -1847,8 +1992,18 @@ namespace GAPI {
             }
         }
 
-        glBegin(GL_TRIANGLES);
-        for (int i = 0; i < range.iCount; i++) {
+        int first = 0;
+        do {
+#ifdef __AMIGA_MINIGL__
+            // The MiniGL immediate-mode staging buffer is finite.  4095 is
+            // divisible by three and stays below the 4096 entries selected
+            // before SDL creates the context.
+            int end = min(first + 4095, range.iCount);
+#else
+            int end = range.iCount;
+#endif
+            glBegin(GL_TRIANGLES);
+        for (int i = first; i < end; i++) {
             GAPI::Vertex* v = &mesh->vBuffer[range.vStart + mesh->iBuffer[range.iStart + i]];
             vec3 color = vec3(v->light.x / 255.0f, v->light.y / 255.0f, v->light.z / 255.0f);
             vec3 coord = vec3(float(v->coord.x), float(v->coord.y), float(v->coord.z));
@@ -1884,6 +2039,8 @@ namespace GAPI {
             glVertex3s(v->coord.x, v->coord.y, v->coord.z);
         }
         glEnd();
+            first = end;
+        } while (first < range.iCount);
 #else
      
         glDrawElements(GL_TRIANGLES, range.iCount, sizeof(Index) == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT, mesh->iBuffer + range.iStart);
@@ -1891,9 +2048,15 @@ namespace GAPI {
     }
 
     vec4 copyPixel(int x, int y) {
+#ifdef __AMIGA_MINIGL__
+        uint8 c[3] = { 0, 0, 0 };
+        glReadPixels(x, y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, c);
+        return vec4(float(c[0]), float(c[1]), float(c[2]), 255.0f) * (1.0f / 255.0f);
+#else
         ubyte4 c;
         glReadPixels(x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, &c);
         return vec4(float(c.x), float(c.y), float(c.z), float(c.w)) * (1.0f / 255.0f);
+#endif
     }
 }
 

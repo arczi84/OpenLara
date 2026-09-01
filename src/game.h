@@ -101,8 +101,26 @@ void loadSettings(Stream *stream, void *userData) {
         stream->read(version);
         if (version == SETTINGS_VERSION && stream->size == sizeof(Core::Settings))
             stream->raw((char*)&Core::settings + 1, stream->size - 1); // read settings data right after version number
+#ifdef __AMIGA_MINIGL__
+        else if (version == 7 && stream->size == OFFSETOF(Core::Settings, resolution)) {
+            // Version 7 ended immediately before the new resolution byte.
+            // Import its complete prefix so audio and controls are retained.
+            stream->raw((char*)&Core::settings + 1, stream->size - 1);
+            Core::settings.resolution = Core::Settings::AMIGA_RES_640_480;
+        }
+#endif
         delete stream;
     }
+
+#ifdef __AMIGA_MINIGL__
+    // MiniGL has no off-screen render targets.  Keep OpenLara's internal
+    // scaling path disabled even when importing a settings file written by
+    // the short-lived build that reused this byte for window resolution.
+    Core::settings.detail.scale = Core::Settings::SCALE_100;
+    Core::settings.detail.displaymode = Core::Settings::DM_WINDOWED;
+    if (Core::settings.resolution >= Core::Settings::AMIGA_RES_MAX)
+        Core::settings.resolution = Core::Settings::AMIGA_RES_640_480;
+#endif
 
     if (Core::settings.detail.stereo == Core::Settings::STEREO_VR) {
         osToggleVR(true);

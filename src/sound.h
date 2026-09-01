@@ -417,15 +417,37 @@ namespace Sound {
 #endif
 
 #ifdef DECODE_IMA
-    struct IMA : Decoder { // https://wiki.multimedia.cx/?title=Microsoft_ADPCM
+    struct IMA : Decoder { // standard WAV IMA ADPCM (format tag 0x11)
         struct State {
             int amp, idx;
         } state[2];
 
-        int freq;
+        int size, block;
+        Frame *buffer;
+        int bufferCapacity, bufferSize, bufferPos;
 
-        IMA(Stream *stream, int channels, int freq) : Decoder(stream, channels, freq) { 
-            memset(state, 0, sizeof(state)); 
+        // Raw continuous IMA stream used by TR3 Escape videos.
+        IMA(Stream *stream, int channels, int freq) :
+            Decoder(stream, channels, freq), size(0), block(0),
+            buffer(NULL), bufferCapacity(0), bufferSize(0), bufferPos(0)
+        {
+            memset(state, 0, sizeof(state));
+        }
+
+        // Block-framed IMA stream used by standard WAV format 0x11.
+        IMA(Stream *stream, int channels, int freq, int size, int block) :
+            Decoder(stream, channels, freq), size(size), block(block),
+            buffer(NULL), bufferCapacity(0), bufferSize(0), bufferPos(0)
+        {
+            memset(state, 0, sizeof(state));
+            if (channels >= 1 && channels <= 2 && block > channels * 4) {
+                bufferCapacity = ((block - channels * 4) * 2 / channels) + 1;
+                buffer = new Frame[bufferCapacity];
+            }
+        }
+
+        virtual ~IMA() {
+            delete[] buffer;
         }
 
         int16 getSample(uint8 n, State &state) {
@@ -468,24 +490,94 @@ namespace Sound {
             return state.amp;
         }
 
-        virtual int decode(Frame *frames, int count) {
-            uint8 n;
-            stream->read(n);
+        bool decodeBlock() {
+            int remaining = size - (stream->pos - offset);
+            if (!buffer || remaining < channels * 4)
+                return false;
 
-            int a = getSample(n >> 4, state[0]);
-            int b = getSample(n,      state[1 % channels]);
+            int blockSize = min(block, remaining);
+            int blockEnd  = stream->pos + blockSize;
 
-            Frame frame;
-            if (channels == 2) {
-                frame.L = a;
-                frame.R = b;
-                return resample(frames, frame);
-            } else {
-                frame.L = frame.R = a;
-                int i = resample(frames, frame);
-                frame.L = frame.R = b;
-                return i + resample(frames + i, frame);
+            for (int i = 0; i < channels; i++) {
+                state[i].amp = (int16)stream->readLE16();
+                uint8 index, reserved;
+                stream->read(index);
+                stream->read(reserved);
+                state[i].idx = index;
+                if (state[i].idx > 88)
+                    return false;
             }
+
+            buffer[0].L = state[0].amp;
+            buffer[0].R = state[(channels == 2) ? 1 : 0].amp;
+            bufferSize = 1;
+            bufferPos  = 0;
+
+            if (channels == 1) {
+                while (stream->pos < blockEnd && bufferSize + 1 < bufferCapacity) {
+                    uint8 value;
+                    stream->read(value);
+                    buffer[bufferSize].L = buffer[bufferSize].R = getSample(value & 15, state[0]);
+                    bufferSize++;
+                    buffer[bufferSize].L = buffer[bufferSize].R = getSample(value >> 4, state[0]);
+                    bufferSize++;
+                }
+            } else {
+                // Stereo blocks contain groups of eight left samples followed
+                // by eight right samples.
+                while (stream->pos + 8 <= blockEnd && bufferSize + 8 <= bufferCapacity) {
+                    uint8 data[2][4];
+                    stream->raw(data[0], 4);
+                    stream->raw(data[1], 4);
+                    for (int i = 0; i < 4; i++) {
+                        buffer[bufferSize].L = getSample(data[0][i] & 15, state[0]);
+                        buffer[bufferSize].R = getSample(data[1][i] & 15, state[1]);
+                        bufferSize++;
+                        buffer[bufferSize].L = getSample(data[0][i] >> 4, state[0]);
+                        buffer[bufferSize].R = getSample(data[1][i] >> 4, state[1]);
+                        bufferSize++;
+                    }
+                }
+            }
+
+            stream->seek(blockEnd - stream->pos);
+            return bufferSize > 0;
+        }
+
+        virtual int decode(Frame *frames, int count) {
+            if (!block) {
+                uint8 value;
+                stream->read(value);
+
+                int a = getSample(value >> 4, state[0]);
+                int b = getSample(value, state[1 % channels]);
+
+                Frame frame;
+                if (channels == 2) {
+                    frame.L = a;
+                    frame.R = b;
+                    return resample(frames, frame);
+                }
+
+                frame.L = frame.R = a;
+                int result = resample(frames, frame);
+                frame.L = frame.R = b;
+                return result + resample(frames + result, frame);
+            }
+
+            if (bufferPos >= bufferSize && !decodeBlock())
+                return 0;
+
+            int result = min(count, bufferSize - bufferPos);
+            memcpy(frames, buffer + bufferPos, result * sizeof(Frame));
+            bufferPos += result;
+            return result;
+        }
+
+        virtual void replay() {
+            if (block)
+                Decoder::replay();
+            bufferSize = bufferPos = 0;
         }
     };
 #endif
@@ -918,6 +1010,9 @@ namespace Sound {
                         if (waveFmt.format == 1) decoder = new PCM(stream, waveFmt.channels, waveFmt.samplesPerSec, size, waveFmt.sampleBits);
                     #ifdef DECODE_ADPCM
                         if (waveFmt.format == 2) decoder = new ADPCM(stream, waveFmt.channels, waveFmt.samplesPerSec, size, waveFmt.block);
+                    #endif
+                    #ifdef DECODE_IMA
+                        if (waveFmt.format == 17) decoder = new IMA(stream, waveFmt.channels, waveFmt.samplesPerSec, size, waveFmt.block);
                     #endif
                         break;
                     } else {

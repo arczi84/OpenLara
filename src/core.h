@@ -64,6 +64,19 @@
     #define VR_SUPPORT
     #define INV_QUALITY
     #define INV_STEREO
+#elif __AMIGA_MINIGL__
+    #define _OS_AMIGA   1
+    #define _GAPI_GL    1
+    #define FFP         1
+
+    #define INV_SINGLE_PLAYER
+
+    // The AmigaOS 3 port uses SDL 1.2 and MiniGL's fixed-function API.
+    // Keep all geometry in host memory and avoid features MiniGL does not
+    // expose (VBOs, render targets, cubemap mip generation and pthreads).
+    #define DYNGEOM_NO_VBO
+    #undef USE_CUBEMAP_MIPS
+    #undef OS_PTHREAD_MT
 #elif __SDL2__
     //#define _GAPI_SW    1
     #define _GAPI_GL   1
@@ -393,7 +406,11 @@ namespace Core {
 #endif
     } support;
 
-#define SETTINGS_VERSION 7
+#ifdef __AMIGA_MINIGL__
+    #define SETTINGS_VERSION 8
+#else
+    #define SETTINGS_VERSION 7
+#endif
 #define SETTINGS_READING 0xFF
 
     struct Settings {
@@ -401,6 +418,18 @@ namespace Core {
         enum Stereo   { STEREO_OFF, STEREO_SBS, STEREO_ANAGLYPH, STEREO_SPLIT, STEREO_VR };
         enum Scale    { SCALE_25, SCALE_50, SCALE_75, SCALE_100 };
         enum DisplayMode { DM_WINDOWED, DM_FULLSCREEN };
+#ifdef __AMIGA_MINIGL__
+        // Native window size saved by the Amiga MiniGL frontend.
+        enum AmigaResolution {
+            AMIGA_RES_320_240,
+            AMIGA_RES_512_384,
+            AMIGA_RES_640_480,
+            AMIGA_RES_800_600,
+            AMIGA_RES_1024_768,
+            AMIGA_RES_1280_960,
+            AMIGA_RES_MAX
+        };
+#endif
         uint8 version;
 
         struct {
@@ -477,6 +506,9 @@ namespace Core {
         // temporary, used only for setting controls
         uint8 playerIndex;
         uint8 ctrlIndex;
+#ifdef __AMIGA_MINIGL__
+        uint8 resolution;
+#endif
     } settings;
 
     bool resetState;
@@ -1009,6 +1041,9 @@ namespace Core {
         settings.audio.language      = defLang;
         settings.detail.fog          = true;
         settings.detail.displaymode  = Settings::DisplayMode::DM_WINDOWED;
+#ifdef __AMIGA_MINIGL__
+        settings.resolution          = Settings::AMIGA_RES_640_480;
+#endif
 
     // player 1
         {

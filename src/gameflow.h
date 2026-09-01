@@ -6,6 +6,16 @@
 
 #define CHECK_FILE(name) if (Stream::existsContent(name)) return name
 
+// The level/1 PNG fallbacks are files served beside the Web build; they are
+// not part of the original PC/GOG DATA directory.  A native Amiga build has
+// no downloader, so return no optional loading screen instead of reporting a
+// misleading missing-file error.  Real PSX/Saturn screens above still win.
+#ifdef __AMIGA_MINIGL__
+    #define TR1_WEB_SCREEN(name) NULL
+#else
+    #define TR1_WEB_SCREEN(name) name
+#endif
+
 namespace TR {
 
     bool useEasyStart;
@@ -1193,7 +1203,13 @@ namespace TR {
     }
 
     bool checkTrack(const char *pre, char *name) {
+    #ifdef __AMIGA_MINIGL__
+        // PCM avoids real-time Vorbis decoding on the 68060.  Keep OGG and
+        // MP3 as fallbacks so existing data sets still work.
+        static const char *fmt[] = { ".wav", ".ogg", ".mp3" };
+    #else
         static const char *fmt[] = { ".ogg", ".mp3", ".wav" };
+    #endif
         const char *lng[] = { "", "", LANG_PREFIXES };
 
         int start = 1;
@@ -1245,7 +1261,7 @@ namespace TR {
         }
 
         sprintf(title, "track_%s", str);
-        if (!checkTrack("", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
+        if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
             return false;
         }
 
@@ -1277,10 +1293,10 @@ namespace TR {
                 case VER_TR1_PC  :
                 case VER_TR1_PSX :
                     sprintf(title, "track_%02d", track);
-                    if (!checkTrack("", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
+                    if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
                         track = remapTrack(version, track);
                         sprintf(title, "%03d", track);
-                        if (!checkTrack("", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
+                        if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
                             callback(NULL, userData);
                             return;
                         }
@@ -1294,7 +1310,7 @@ namespace TR {
                     //}
                     track = remapTrack(version, track);
                     sprintf(title, "track_%02d", track);
-                    if (!checkTrack("", title) && !checkTrack("audio/2/", title) && !checkTrack("audio/", title)) {
+                    if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/2/", title) && !checkTrack("audio/", title)) {
                         callback(NULL, userData);
                         return;
                     }
@@ -1365,12 +1381,12 @@ namespace TR {
                 CHECK_FILE("DELDATA/JAPTIT.RAW");   // PSX JAP
                 CHECK_FILE("BINDATA/USATIT.BIN");   // SEGA
                 CHECK_FILE("BINDATA/TITLE1.BIN");   // SEGA
-                return "level/1/AMERTIT.PNG";       // WEB
+                return TR1_WEB_SCREEN("level/1/AMERTIT.PNG");
             case LVL_TR1_GYM :
                 CHECK_FILE("DELDATA/GYMLOAD.RAW");
                 CHECK_FILE("BINDATA/GYM224.BIN");
                 CHECK_FILE("BINDATA/GYM.BIN");
-                return "level/1/GYMLOAD.PNG";
+                return TR1_WEB_SCREEN("level/1/GYMLOAD.PNG");
             case LVL_TR1_1  :
             case LVL_TR1_2  :
             case LVL_TR1_3A :
@@ -1378,7 +1394,7 @@ namespace TR {
                 CHECK_FILE("DELDATA/AZTECLOA.RAW");
                 CHECK_FILE("BINDATA/AZTEC224.BIN");
                 CHECK_FILE("BINDATA/AZTEC.BIN");
-                return "level/1/AZTECLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/AZTECLOA.PNG");
             case LVL_TR1_4  :
             case LVL_TR1_5  :
             case LVL_TR1_6  :
@@ -1387,21 +1403,21 @@ namespace TR {
                 CHECK_FILE("DELDATA/GREEKLOA.RAW");
                 CHECK_FILE("BINDATA/GREEK224.BIN");
                 CHECK_FILE("BINDATA/GREEK.BIN");
-                return "level/1/GREEKLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/GREEKLOA.PNG");
             case LVL_TR1_8A :
             case LVL_TR1_8B :
             case LVL_TR1_8C :
                 CHECK_FILE("DELDATA/EGYPTLOA.RAW");
                 CHECK_FILE("BINDATA/EGYPT224.BIN");
                 CHECK_FILE("BINDATA/EGYPT.BIN");
-                return "level/1/EGYPTLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/EGYPTLOA.PNG");
             case LVL_TR1_10A :
             case LVL_TR1_10B :
             case LVL_TR1_10C :
                 CHECK_FILE("DELDATA/ATLANLOA.RAW");
                 CHECK_FILE("BINDATA/ATLAN224.BIN");
                 CHECK_FILE("BINDATA/ATLAN.BIN");
-                return "level/1/ATLANLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/ATLANLOA.PNG");
         // TR2
             case LVL_TR2_TITLE :
                 CHECK_FILE("TITLE.png");            // Android

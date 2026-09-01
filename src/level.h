@@ -624,6 +624,12 @@ struct Level : IGame {
 
     virtual void renderEnvironment(int roomIndex, const vec3 &pos, Texture **targets, int stride = 0, Core::Pass pass = Core::passAmbient) {
 
+        #ifdef __AMIGA_MINIGL__
+            // PiStorm3D MiniGL has no off-screen target; glReadPixels reads
+            // the last presented RastPort instead of this environment view.
+            return;
+        #endif
+
         #if defined(FFP) && !defined(_GAPI_GL)
             return;
         #endif
