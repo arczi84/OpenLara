@@ -1512,11 +1512,9 @@ struct Inventory {
         if (target) {
 
 #ifdef __AMIGA_MINIGL__
-            // PiStorm3D submits the accumulated frame only on display
-            // switch, while its glReadPixels reads the visible RastPort.
-            // Present this one gameplay frame before capturing it for the
-            // inventory background.
-            mglSwitchDisplay();
+            // Finish the gameplay capture without swapping buffers:
+            // MiniGL readback after a display switch returns the old frame.
+            glFinish();
 
             uint8_t* src = new uint8_t[target->width * target->height * 3];
             uint8_t* dst = new uint8_t[target->width * target->height * 4];
