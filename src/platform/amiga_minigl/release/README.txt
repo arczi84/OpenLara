@@ -5,11 +5,12 @@ Extract this archive to your games drawer. Put your original Tomb Raider
 DATA directory inside OpenLara-MiniGL, beside the executable.
 Game data is not included.
 
-Extract OpenLara-Music-ADP4-WAV.zip to the SAME parent drawer. Its
-OpenLara-MiniGL directory merges with the port directory.
-audio-adp4 contains the default IMA ADPCM music in WAV containers.
-audio-wav contains the alternative uncompressed PCM WAV music. To use PCM,
-rename audio-adp4 to audio-adp4-backup and audio-wav to audio-adp4.
+Music is distributed separately. Choose ONE archive:
+  OpenLara-Music-ADP4.zip - IMA ADPCM music in WAV containers
+  OpenLara-Music-WAV.zip  - uncompressed PCM WAV music
+Extract your chosen archive to the SAME parent drawer as the port.
+Both alternatives install to OpenLara-MiniGL/audio-adp4, the directory
+searched by this build. Installing the other alternative replaces the music.
 No OGG files are included.
 
 START
