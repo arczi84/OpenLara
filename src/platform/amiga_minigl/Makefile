@@ -1,10 +1,12 @@
 AMIGA_ROOT ?= /opt/amiga-gcc6-latest
-AMIGA_GCC16_ROOT ?= /opt/amiga-gcc16-bernie
+AMIGA_GCC16_ROOT ?= /opt/amiga16-copy
 PISTORM3D_ROOT ?= ../../../../../Pistorm3D
 MGL_SDK ?= $(PISTORM3D_ROOT)/Pistorm3D_v12
-SDL_MGL ?= $(PISTORM3D_ROOT)/tests/sdl-stormmesa-window/libSDL-mgl-v12-windowfix.a
-SDL_MGL_INC ?= $(PISTORM3D_ROOT)/libSDL12-mgl/include
-SDL_COMPAT_INC ?= $(PISTORM3D_ROOT)/libSDL12-1.2.15.1/include
+SDL_MGL_ROOT ?= $(PISTORM3D_ROOT)/tests/sdl-fullscreen-fallback
+SDL_MGL ?= $(SDL_MGL_ROOT)/build-fs/libSDL_libnix-fs.a
+SDL_MGL_INC ?= $(SDL_MGL_ROOT)/include/SDL
+SDL_COMPAT_INC ?= $(SDL_MGL_ROOT)/include
+WARP3D_INC ?= $(PISTORM3D_ROOT)/libSDL12-mgl/include
 MGL_RUNTIME ?= $(PISTORM3D_ROOT)/minigl.library
 AMIGADATE ?= $(shell date +%-d.%-m.%Y)
 
@@ -30,23 +32,23 @@ GCC16_SAFE_DEPS := $(GCC16_SAFE_OBJECTS:.o=.d)
 
 CPPFLAGS := -D__AMIGA_MINIGL__ -DGL_GLEXT_LEGACY \
 	-D__AMIGADATE__=\"$(AMIGADATE)\" \
-	-I../../ -I$(MGL_SDK)/include -I$(SDL_MGL_INC) -I$(SDL_COMPAT_INC)
+	-I../../ -I$(MGL_SDK)/include -I$(SDL_MGL_INC) -I$(SDL_COMPAT_INC) -I$(WARP3D_INC)
 CXXFLAGS := -std=gnu++11 -O2 -mcpu=68060 -mhard-float -ffast-math -fno-builtin -mcrt=nix20 \
 	-fomit-frame-pointer -fno-strict-aliasing -fno-exceptions -fno-rtti \
 	-ffunction-sections -fdata-sections -MMD -MP -Wall -Wno-unused-variable
 LDFLAGS := -mcrt=nix20 -Wl,--gc-sections
-LDLIBS := -Wl,--start-group $(SDL_MGL) $(MGL_SDK)/libminigl_dispatch.a \
-	-Wl,--end-group -lm
+# HUNK section GC does not follow libdebug's kprintf -> KPrintF alias.
+# Keep the actual implementation; otherwise SDL calls a discarded section offset.
+LDLIBS := -Wl,-u,_KPrintF -Wl,--start-group $(SDL_MGL) $(MGL_SDK)/libminigl_dispatch.a \
+	-Wl,--end-group -lm -ldebug
 
-# Matches the validated Jazz2 GCC 16.2 "safe math" build.  This toolchain's
-# -mhard-float spelling selects the incompatible soft-float libm060 multilib;
-# -m68881 enables the same hard-float ABI while selecting the correct runtime.
-GCC16_SAFE_CXXFLAGS := -std=gnu++11 -O2 -DNDEBUG -mcpu=68060 -m68881 \
-	-mcrt=nix20 -fomit-frame-pointer -fno-exceptions -fno-rtti \
-	-fno-optimize-sibling-calls -fno-fast-math -fno-strict-aliasing \
-	-funsafe-loop-optimizations -ftree-loop-if-convert-stores \
+# Dethrace Release profile, also used by fog commit 796a802 (2026-09-22).
+# Keep the historical target name for existing build commands.
+GCC16_SAFE_CXXFLAGS := -std=gnu++11 -O3 -DNDEBUG -m68060 -mhard-float \
+	-noixemul -fbbb=- -fno-strict-aliasing -fno-unroll-loops \
+	-fomit-frame-pointer -fno-exceptions -fno-rtti \
 	-ffunction-sections -fdata-sections -MMD -MP -Wall -Wno-unused-variable
-GCC16_SAFE_LDFLAGS := -mcpu=68060 -m68881 -mcrt=nix20 \
+GCC16_SAFE_LDFLAGS := -m68060 -mhard-float -noixemul \
 	-Wl,--gc-sections
 
 .PHONY: all clean check package gcc16-safe check-gcc16-safe package-gcc16-safe
@@ -95,6 +97,8 @@ build-gcc16-safe/tinflate.o: ../../libs/tinf/tinflate.c
 
 check: $(TARGET)
 	file $(TARGET)
+	@$(NM) $(TARGET) | grep -q ' T _KPrintF$$'
+	@$(NM) $(TARGET) | grep -q ' T _kprintf$$'
 	@file $(TARGET) | grep -q 'AmigaOS loadseg'
 	@undefined="$$($(NM) -u $(TARGET))"; \
 		test -z "$$undefined" || { echo "Undefined symbols:"; echo "$$undefined"; exit 1; }
@@ -111,15 +115,17 @@ package: check
 
 check-gcc16-safe: $(GCC16_SAFE_TARGET)
 	file $(GCC16_SAFE_TARGET)
+	@$(GCC16_NM) $(GCC16_SAFE_TARGET) | grep -q ' T _KPrintF$$'
+	@$(GCC16_NM) $(GCC16_SAFE_TARGET) | grep -q ' T _kprintf$$'
 	@file $(GCC16_SAFE_TARGET) | grep -q 'AmigaOS loadseg'
 	@undefined="$$($(GCC16_NM) -u $(GCC16_SAFE_TARGET))"; \
 		test -z "$$undefined" || { echo "Undefined symbols:"; echo "$$undefined"; exit 1; }
 	@if $(GCC16_NM) $(GCC16_SAFE_TARGET) | grep -q ' ___stkexit$$'; then \
 		echo "Unexpected libnix stack-swap teardown in GCC 16.2 binary"; exit 1; \
 	fi
-	@$(GCC16_NM) $(GCC16_SAFE_TARGET) | grep -q ' ___fpucheck$$'
+	@$(GCC16_NM) $(GCC16_SAFE_TARGET) | grep -q ' _MathIeeeSingTransBase$$'
 	@strings $(GCC16_SAFE_TARGET) | grep -q '\$$VER: OpenLara MiniGL '
-	@echo "check: GCC 16.2 safe executable, hard-float runtime, no unresolved symbols"
+	@echo "check: GCC 16.2 Dethrace profile, math runtime, SDL debug aliases, no unresolved symbols"
 
 package-gcc16-safe: check-gcc16-safe
 	@mkdir -p $(DIST_DIR)

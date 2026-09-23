@@ -1,6 +1,12 @@
 # OpenLara
 Classic Tomb Raider open-source engine
 
+This `minigl` branch contains the AmigaOS 3 / PiStorm3D MiniGL port.
+See the [Amiga build instructions](src/platform/amiga_minigl/README.md)
+and [release installation guide](src/platform/amiga_minigl/release/README.txt).
+The port uses GCC 16.2, offers resolutions up to 1920x1080 and fullscreen,
+and includes the Workbench IconX launcher. Original game data is not included.
+
 [WebGL build with demo level](http://xproger.info/projects/OpenLara/)
 
 [Standalone version](https://github.com/XProger/OpenLara/releases/tag/latest)

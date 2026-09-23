@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include <math.h>
 #include <float.h>
+#ifdef __AMIGA_MINIGL__
+void osTraceLoad(const char *format, ...);
+extern int osLoadTraceFrames;
+#endif
 #if defined(_WIN32)
 #    define __ORDER_BIG_ENDIAN__ 4321
 #    define __ORDER_LITTLE_ENDIAN__ 1234

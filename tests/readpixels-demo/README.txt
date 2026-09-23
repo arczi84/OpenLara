@@ -32,11 +32,11 @@ Grey around a clipped pattern suggests coordinate/viewport disagreement.
 Mode 3 must preserve the same pattern as mode 2 if coordinates work.
 
 Files (overwritten on repeat):
-  RAM:readpixels-demo.log
-  RAM:readpixels-before-switch.ppm
-  RAM:readpixels-after-switch.ppm
-  RAM:readpixels-offset-after-switch.ppm
-  RAM:readpixels-finish-before-read.ppm
+  PROGDIR:readpixels-demo.log
+  PROGDIR:readpixels-before-switch.ppm
+  PROGDIR:readpixels-after-switch.ppm
+  PROGDIR:readpixels-offset-after-switch.ppm
+  PROGDIR:readpixels-finish-before-read.ppm
 
 PPM contains raw RGB readback before texture upload, with row order
 converted from GL bottom-first to PPM top-first. Four interior sample
@@ -46,7 +46,7 @@ If PPM is correct but the right panel is wrong, inspect texture upload
 or drawing. If PPM is wrong, inspect capture coordinates/buffer/rendering.
 The left panel must first be correct for the reference test to be useful.
 
-Run all four modes on Classic and PiStorm3D. Copy the RAM files to separate
+Run all four modes on Classic and PiStorm3D. Copy the output files to separate
 folders before switching libraries or rebooting. Compare windowed and
 fullscreen mode if the capture includes window borders or a grey strip.
 

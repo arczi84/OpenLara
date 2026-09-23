@@ -29,8 +29,11 @@ static const struct OptionItem *waitForKey = NULL;
 #ifdef __AMIGA_MINIGL__
 static const char *getAmigaResolutionName(uint8 value) {
     static const char *names[] = {
-        "320x240", "512x384", "640x480", "800x600", "1024x768", "1280x960"
+        "320x240", "512x384", "640x480", "800x600", "1024x768", "1280x960",
+        "960x540", "1024x576", "1280x720", "1280x800", "1280x1024",
+        "1366x768", "1440x900", "1600x900", "1680x1050", "1920x1080"
     };
+    static_assert(COUNT(names) == Core::Settings::AMIGA_RES_MAX, "Resolution labels must match saved IDs");
     return value < COUNT(names) ? names[value] : names[Core::Settings::AMIGA_RES_640_480];
 }
 #endif
@@ -166,7 +169,7 @@ static const OptionItem optDetail[] = {
 #endif
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SIMPLE_ITEMS,    SETTINGS( detail.simple    ), STR_OFF, 0, 1 ),
     OptionItem(),
-#if defined(__SDL3__) || defined(__SDL2__) || defined(_OS_WIN)
+#if defined(__SDL3__) || defined(__SDL2__) || defined(_OS_WIN) || defined(__AMIGA_MINIGL__)
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_MODE,            SETTINGS(detail.displaymode), STR_DISPLAYMODE_WINDOWED, 0, 1),
 #endif
 #ifdef __AMIGA_MINIGL__

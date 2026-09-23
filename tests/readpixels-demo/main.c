@@ -59,7 +59,7 @@ static void capture(int mode) {
         fprintf(logfile,"sample (%d,%d): %u %u %u; expected %d %d %d\n",
             coords[i][0],coords[i][1],p[0],p[1],p[2],expected[i][0],expected[i][1],expected[i][2]);
     }
-    snprintf(path,sizeof(path),"RAM:readpixels-%s.ppm",names[mode]);
+    snprintf(path,sizeof(path),"PROGDIR:readpixels-%s.ppm",names[mode]);
     f=fopen(path,"wb");
     if(f) {
         int ok = fprintf(f,"P6\n256 256\n255\n") > 0;
@@ -101,8 +101,8 @@ int main(int argc,char **argv) {
         else if(!strcmp(argv[i],"-32")) depth=32;
         else { puts("Usage: ReadPixelsDemo [-fullscreen] [-32]"); return 20; }
     }
-    logfile=fopen("RAM:readpixels-demo.log","w");
-    if(!logfile) { puts("Cannot create RAM:readpixels-demo.log"); return 20; }
+    logfile=fopen("PROGDIR:readpixels-demo.log","w");
+    if(!logfile) { puts("Cannot create PROGDIR:readpixels-demo.log"); return 20; }
     if(!MiniGLOpen()) { fprintf(logfile,"MiniGLOpen failed\n"); fclose(logfile); return 20; }
     fprintf(logfile,"MiniGL %u.%u ABI %lu flags 0x%lx\n",(unsigned)MiniGLBase->lib_Version,
         (unsigned)MiniGLBase->lib_Revision,(unsigned long)MiniGLDispatch->abiVersion,(unsigned long)MiniGLDispatch->backendFlags);

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include <SDL/SDL.h>
 
@@ -32,7 +33,7 @@
 #define __AMIGADATE__ "31.8.2026"
 #endif
 
-static const char versionTag[] = "$VER: " WND_TITLE " 1.0 (" __AMIGADATE__ ")";
+static const char versionTag[] = "$VER: " WND_TITLE " 1.6 (" __AMIGADATE__ ")";
 
 extern "C" {
 // Retained for launchers which inspect the conventional stack request.  Do
@@ -45,9 +46,10 @@ static SDL_Surface  *screen;
 static SDL_Joystick *joysticks[MAX_JOYS];
 static int joystickCount;
 static vec2 joyL, joyR;
-static FILE *startupLog;
 static bool disableAudio;
+static FILE *startupLog;
 static int displayDepth = 32;
+static bool fullscreen;
 
 struct VideoMode {
     int width;
@@ -61,7 +63,18 @@ static const VideoMode videoModes[] = {
     {  800, 600 },
     { 1024, 768 },
     { 1280, 960 },
+    {  960, 540 },
+    { 1024, 576 },
+    { 1280, 720 },
+    { 1280, 800 },
+    { 1280, 1024 },
+    { 1366, 768 },
+    { 1440, 900 },
+    { 1600, 900 },
+    { 1680, 1050 },
+    { 1920, 1080 },
 };
+static_assert(COUNT(videoModes) == Core::Settings::AMIGA_RES_MAX, "Video modes must match saved IDs");
 
 static int resolutionIndex = Core::Settings::AMIGA_RES_640_480;
 
@@ -75,6 +88,8 @@ static Uint32 sndMaxMixMS;
 static Uint32 sndLateGapCount;
 static Uint32 sndLateMixCount;
 
+
+
 static void traceStartup(const char *text) {
     puts(text);
     if (startupLog) {
@@ -82,6 +97,18 @@ static void traceStartup(const char *text) {
         fputc('\n', startupLog);
         fflush(startupLog);
     }
+}
+
+int osLoadTraceFrames = 0;
+
+void osTraceLoad(const char *format, ...) {
+    if (!startupLog) return;
+    char text[256];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    traceStartup(text);
 }
 
 static void traceSDLError(const char *stage) {
@@ -400,6 +427,11 @@ static void inputUpdate() {
                 Core::isQuit = true;
                 break;
             case SDL_KEYDOWN: {
+                if (event.key.keysym.sym == SDLK_F10) {
+                    traceStartup("input: F10 exit");
+                    Core::isQuit = true;
+                    return;
+                }
                 InputKey key = codeToInputKey(event.key.keysym.sym);
                 if (key != ikNone) {
                     if (key == ikEscape)
@@ -448,10 +480,15 @@ static void inputUpdate() {
 
 static void printUsage() {
     puts(versionTag);
-    puts("OpenLara-MiniGL [-nosound] [-res WIDTHxHEIGHT] [-depth BITS] [-d DATA_DIRECTORY] [-l LEVEL_FILE]");
+    puts("OpenLara-MiniGL [-nosound] [-res WIDTHxHEIGHT] [-fullscreen|-windowed] [-depth BITS] [-d DATA_DIRECTORY] [-l LEVEL_FILE]");
     puts("  -d DIR   directory containing original Tomb Raider data");
     puts("  -l FILE  load a specific level file");
-    puts("  -res WxH select 320x240, 512x384, 640x480, 800x600, 1024x768 or 1280x960");
+    puts("  -res WxH select a resolution (up to 1920x1080):");
+    for (unsigned i = 0; i < COUNT(videoModes); ++i)
+        printf("    %dx%d\n", videoModes[i].width, videoModes[i].height);
+    puts("  -fullscreen open a fullscreen display");
+    puts("  -windowed   open a window (overrides saved fullscreen)");
+    puts("  F10         exit immediately without opening the menu");
     puts("  -depth N screen colour depth: 16, 24 or 32 (default and recommended: 32)");
     puts("  -nosound disable SDL/AHI audio for diagnostics");
     puts("  -h       show this help");
@@ -469,20 +506,21 @@ static int findResolution(const char *text) {
     return -1;
 }
 
-static int readSavedResolution() {
+static void readSavedVideoMode() {
     FILE *file = fopen("PROGDIR:settings", "rb");
     if (!file)
-        return Core::Settings::AMIGA_RES_640_480;
+        return;
 
     Core::Settings saved;
     size_t bytes = fread(&saved, 1, sizeof(saved), file);
     fclose(file);
 
-    if (bytes != sizeof(saved) || saved.version != SETTINGS_VERSION ||
-        saved.resolution >= Core::Settings::AMIGA_RES_MAX)
-        return Core::Settings::AMIGA_RES_640_480;
+    if (bytes != sizeof(saved) || saved.version != SETTINGS_VERSION)
+        return;
 
-    return saved.resolution;
+    if (saved.resolution < Core::Settings::AMIGA_RES_MAX)
+        resolutionIndex = saved.resolution;
+    fullscreen = saved.detail.displaymode == Core::Settings::DM_FULLSCREEN;
 }
 
 static int parseArguments(int argc, char **argv, char *&levelName) {
@@ -505,6 +543,11 @@ static int parseArguments(int argc, char **argv, char *&levelName) {
             return 5;
         } else if (!strcmp(argv[i], "-nosound")) {
             disableAudio = true;
+
+        } else if (!strcmp(argv[i], "-fullscreen")) {
+            fullscreen = true;
+        } else if (!strcmp(argv[i], "-windowed")) {
+            fullscreen = false;
         } else if (!strcmp(argv[i], "-depth")) {
             if (i + 1 >= argc) {
                 puts("OpenLara: -depth needs 16, 24 or 32");
@@ -551,8 +594,6 @@ int main(int argc, char **argv) {
     startupLog = fopen("PROGDIR:OpenLara.log", "w");
     atexit(closeStartupLog);
     traceStartup("01 main: start");
-    // Keep the Amiga $VER tag reachable even with GCC 16 and linker section
-    // garbage collection; it is also useful in captured startup logs.
     traceStartup(versionTag);
 
     cacheDir[0] = saveDir[0] = contentDir[0] = 0;
@@ -560,7 +601,7 @@ int main(int argc, char **argv) {
     strcpy(saveDir,  "PROGDIR:");
     strcpy(contentDir, "PROGDIR:");
 
-    resolutionIndex = readSavedResolution();
+    readSavedVideoMode();
 
     char *levelName = NULL;
     int argResult = parseArguments(argc, argv, levelName);
@@ -620,11 +661,11 @@ int main(int argc, char **argv) {
     const VideoMode &videoMode = videoModes[resolutionIndex];
     {
         char info[96];
-        snprintf(info, sizeof(info), "06 SDL_SetVideoMode %dx%dx%d: begin",
-                 videoMode.width, videoMode.height, displayDepth);
+        snprintf(info, sizeof(info), "06 SDL_SetVideoMode %dx%dx%d %s: begin",
+                 videoMode.width, videoMode.height, displayDepth, fullscreen ? "fullscreen" : "windowed");
         traceStartup(info);
     }
-    screen = SDL_SetVideoMode(videoMode.width, videoMode.height, displayDepth, SDL_OPENGL);
+    screen = SDL_SetVideoMode(videoMode.width, videoMode.height, displayDepth, SDL_OPENGL | (fullscreen ? SDL_FULLSCREEN : 0));
     if (!screen) {
         traceSDLError("06 SDL_SetVideoMode FAILED");
         closeStartupLog();
@@ -633,7 +674,8 @@ int main(int argc, char **argv) {
         return 20;
     }
     traceStartup("07 SDL_SetVideoMode: OK");
-    centerMiniGLWindow();
+    if (!fullscreen)
+        centerMiniGLWindow();
 
     // Submit a known frame before any game or audio initialization.  A black
     // window proves that context creation and the PiStorm3D present path work;
@@ -658,6 +700,7 @@ int main(int argc, char **argv) {
     // option writes it to settings; MiniGL uses it on the next launch because
     // changing SDL_SetVideoMode in place destroys all GL resources.
     Core::settings.resolution = resolutionIndex;
+    Core::settings.detail.displaymode = fullscreen ? Core::Settings::DM_FULLSCREEN : Core::Settings::DM_WINDOWED;
     traceStartup("11 Game::init: OK");
 
     traceStartup("12 main loop: begin");
@@ -667,9 +710,17 @@ int main(int argc, char **argv) {
         Uint32 frameStartMS = SDL_GetTicks();
         bool framePresented = false;
         inputUpdate();
+        if (Core::isQuit) break;
+        if (osLoadTraceFrames) osTraceLoad("post-load frame %d: update begin", 5 - osLoadTraceFrames);
         if (Game::update()) {
+            if (osLoadTraceFrames) osTraceLoad("post-load frame %d: update done, render begin", 5 - osLoadTraceFrames);
             if (Game::render()) {
+                if (osLoadTraceFrames) osTraceLoad("post-load frame %d: render done, swap begin", 5 - osLoadTraceFrames);
                 SDL_GL_SwapBuffers();
+                if (osLoadTraceFrames) {
+                    osTraceLoad("post-load frame %d: swap done", 5 - osLoadTraceFrames);
+                    --osLoadTraceFrames;
+                }
                 framePresented = true;
                 if (firstFrame) {
                     traceStartup("13 first game frame: presented");

@@ -419,7 +419,7 @@ namespace Core {
         enum Scale    { SCALE_25, SCALE_50, SCALE_75, SCALE_100 };
         enum DisplayMode { DM_WINDOWED, DM_FULLSCREEN };
 #ifdef __AMIGA_MINIGL__
-        // Native window size saved by the Amiga MiniGL frontend.
+        // Saved IDs: append modes so existing settings keep their resolution.
         enum AmigaResolution {
             AMIGA_RES_320_240,
             AMIGA_RES_512_384,
@@ -427,6 +427,16 @@ namespace Core {
             AMIGA_RES_800_600,
             AMIGA_RES_1024_768,
             AMIGA_RES_1280_960,
+            AMIGA_RES_960_540,
+            AMIGA_RES_1024_576,
+            AMIGA_RES_1280_720,
+            AMIGA_RES_1280_800,
+            AMIGA_RES_1280_1024,
+            AMIGA_RES_1366_768,
+            AMIGA_RES_1440_900,
+            AMIGA_RES_1600_900,
+            AMIGA_RES_1680_1050,
+            AMIGA_RES_1920_1080,
             AMIGA_RES_MAX
         };
 #endif

@@ -5,3 +5,6 @@
 /src/platform/amiga_minigl/OpenLara-MiniGL
 /src/platform/amiga_minigl/OpenLara-MiniGL-gcc16-safe
 /tests/readpixels-demo/ReadPixelsDemo
+/tests/readpixels-demo.zip
+/tests/readpixels-demo/*.ppm
+/tests/readpixels-demo/*.log
