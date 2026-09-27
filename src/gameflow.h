@@ -1292,6 +1292,15 @@ namespace TR {
                 case VER_TR1_SAT :
                 case VER_TR1_PC  :
                 case VER_TR1_PSX :
+#ifdef __AMIGA_MINIGL__
+                    // The Amiga music packs use remapped numeric WAV names.
+                    // Avoid probing every track_XX language/format/directory
+                    // combination on the game thread before each voice line.
+                    // checkTrack preserves the selected-language preference.
+                    sprintf(title, "%03d", remapTrack(version, track));
+                    if (checkTrack("audio-adp4/", title))
+                        break;
+#endif
                     sprintf(title, "track_%02d", track);
                     if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
                         track = remapTrack(version, track);

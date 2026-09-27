@@ -20,7 +20,9 @@ Double-click OpenLara. Its project icon uses C:IconX; the script sets a
 
 REQUIREMENTS
 AmigaOS 3, 68060/FPU or compatible Emu68, RTG, AHI, and a compatible
-MiniGL library with dispatch ABI 3 and SDL FromWindow support (v27.2+).
+MiniGL library with dispatch ABI 3 and MGLCreateContextFromWindow support.
+Classic 25.0 is incompatible; use the Classic 27.0 FromWindow build or a
+compatible newer backend. The API entry is checked, not just the version.
 Use the MiniGL backend matching your hardware in LIBS:minigl.library.
 No MiniGL runtime is bundled.
 The PNG Workbench icon needs PNG icon support in icon.library.
@@ -43,6 +45,11 @@ If necessary, start with OpenLara-MiniGL -windowed -res 640x480.
 Settings, saves and OpenLara.log are written beside the executable.
 Logging shows basic version, display and audio information plus errors.
 Per-frame, save-loading, input and startup/shutdown traces are removed.
+
+CHANGES IN 1.7
+Reduced logging to basic information and errors. Music lookup now tries the
+packaged audio-adp4/NNN.wav tracks first, avoiding hundreds of file probes
+before voice lines. Language selection and legacy fallback paths remain.
 
 CREDITS
 OpenLara: Timur "XProger" Gagiev and contributors.
