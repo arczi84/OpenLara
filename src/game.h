@@ -58,10 +58,6 @@ namespace Game {
     }
 
     void startLevel(Stream *lvl) {
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("start level: slot=%d, deleting old level", loadSlot);
-        osLoadTraceFrames = 4;
-#endif
         TR::LevelID id = TR::LVL_MAX;
         if (level)
             id = level->level.id;
@@ -73,13 +69,7 @@ namespace Game {
             playVideo = !saveSlots[loadSlot].isCheckpoint();
 
         delete level;
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("old level deleted; constructing new level");
-#endif
         level = new Level(*lvl);
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("new level constructed: id=%d", int(level->level.id));
-#endif
 
         bool playLogo = level->level.isTitle() && id == TR::LVL_MAX;
         playVideo = playVideo && (id != level->level.id);
@@ -88,9 +78,6 @@ namespace Game {
             playVideo = false;
 
         level->init(playLogo, playVideo);
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("new level initialized");
-#endif
 
         UI::game = level;
         #if !defined(INV_GAMEPAD_ONLY)

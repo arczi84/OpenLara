@@ -205,9 +205,6 @@ struct Level : IGame {
     }
 
     void parseSaveSlot(const SaveSlot &slot) {
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("restore save: level=%d bytes=%lu checkpoint=%d", int(slot.getLevelID()), (unsigned long)slot.size, int(slot.isCheckpoint()));
-#endif
         clearInventory();
 
         uint8 *data = slot.data;
@@ -239,15 +236,9 @@ struct Level : IGame {
         // level entities
             int32 entitiesCount = *(int32*)ptr;
             ptr += sizeof(entitiesCount);
-#ifdef __AMIGA_MINIGL__
-            osTraceLoad("restore entities: count=%ld base=%d", (long)entitiesCount, level.entitiesBaseCount);
-#endif
 
             for (int i = 0; i < entitiesCount; i++) {
                 SaveEntity *entity = (SaveEntity*)ptr;
-#ifdef __AMIGA_MINIGL__
-                osTraceLoad("restore entity %d: type=%u extra=%u offset=%ld", i, unsigned(entity->type), unsigned(entity->extraSize), long(ptr - data));
-#endif
 
                 Controller *controller;
                 if (i >= level.entitiesBaseCount)
@@ -281,9 +272,6 @@ struct Level : IGame {
         }
 
         statsTimeDelta = 0.0f;
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("restore save complete");
-#endif
     }
 
     static void saveGameWriteAsync(Stream *stream, void *userData) {
@@ -336,9 +324,6 @@ struct Level : IGame {
     }
 
     virtual void loadGame(int slot) {
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("load requested: slot=%d count=%d", slot, saveSlots.length);
-#endif
         LOG("Load Game...\n");
         loadSlot = slot;
     }
@@ -2315,9 +2300,6 @@ struct Level : IGame {
         isEnded = true;
         char buf[64];
         TR::getGameLevelFile(buf, level.version, nextLevel);
-#ifdef __AMIGA_MINIGL__
-        osTraceLoad("opening level file: %s", buf);
-#endif
         nextLevel = TR::LVL_MAX;
         new Stream(buf, loadLevelAsync);
     }

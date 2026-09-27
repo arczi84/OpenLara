@@ -1,4 +1,4 @@
-OpenLara MiniGL 1.6 for AmigaOS 3
+OpenLara MiniGL 1.7 for AmigaOS 3
 
 INSTALLATION
 Extract this archive to your games drawer. Put your original Tomb Raider
@@ -41,7 +41,8 @@ Command-line options:
 If necessary, start with OpenLara-MiniGL -windowed -res 640x480.
 
 Settings, saves and OpenLara.log are written beside the executable.
-Logging retains the original console and automatic file behaviour.
+Logging shows basic version, display and audio information plus errors.
+Per-frame, save-loading, input and startup/shutdown traces are removed.
 
 CREDITS
 OpenLara: Timur "XProger" Gagiev and contributors.

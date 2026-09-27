@@ -58,8 +58,9 @@ OpenLara-MiniGL -d Work:Games/TombRaider
 Use `-l FILE` to start a specific supported level and `-h` for the complete
 command-line help.  No original game data is included in the package.
 
-Diagnostics are printed to the console and automatically written to
-OpenLara.log beside the executable (PROGDIR:), as in the original port.  SDL/AHI is opened only after the first rendered game frame,
+Basic version, display and audio information and errors are printed to the
+console and automatically written to
+OpenLara.log beside the executable (PROGDIR:), without per-frame or startup/shutdown tracing. SDL/AHI is opened only after the first rendered game frame,
 because starting its task during MiniGL initialization can stall real PiStorm
 hardware even though that ordering works in WinUAE.  Running with `-nosound`
 skips SDL/AHI initialization completely.

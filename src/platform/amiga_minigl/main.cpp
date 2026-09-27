@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 
 #include <SDL/SDL.h>
 
@@ -33,7 +32,7 @@
 #define __AMIGADATE__ "31.8.2026"
 #endif
 
-static const char versionTag[] = "$VER: " WND_TITLE " 1.6 (" __AMIGADATE__ ")";
+static const char versionTag[] = "$VER: " WND_TITLE " 1.7 (" __AMIGADATE__ ")";
 
 extern "C" {
 // Retained for launchers which inspect the conventional stack request.  Do
@@ -99,18 +98,6 @@ static void traceStartup(const char *text) {
     }
 }
 
-int osLoadTraceFrames = 0;
-
-void osTraceLoad(const char *format, ...) {
-    if (!startupLog) return;
-    char text[256];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(text, sizeof(text), format, args);
-    va_end(args);
-    traceStartup(text);
-}
-
 static void traceSDLError(const char *stage) {
     const char *error = SDL_GetError();
     printf("%s: %s\n", stage, error);
@@ -130,7 +117,6 @@ static void closeStartupLog() {
 static void centerMiniGLWindow() {
     struct Window *window = (struct Window *)mglGetWindowHandle();
     if (!window || !window->WScreen) {
-        traceStartup("07 window centering: MiniGL window not available");
         return;
     }
 
@@ -141,12 +127,6 @@ static void centerMiniGLWindow() {
 
     MoveWindow(window, left - window->LeftEdge, top - window->TopEdge);
 
-    char info[128];
-    snprintf(info, sizeof(info),
-             "07 window centered: %dx%d at %d,%d on %dx%d",
-             (int)window->Width, (int)window->Height, left, top,
-             (int)window->WScreen->Width, (int)window->WScreen->Height);
-    traceStartup(info);
 }
 
 void* osMutexInit()                         { return SDL_CreateMutex(); }
@@ -237,15 +217,6 @@ static void sndFree() {
         return;
     SDL_PauseAudio(1);
     SDL_CloseAudio();
-    char info[160];
-    snprintf(info, sizeof(info),
-             "audio stats: callbacks %lu, max gap %lu ms (%lu late), max mix %lu ms (%lu late)",
-             (unsigned long)sndCallbackCount,
-             (unsigned long)sndMaxCallbackGapMS,
-             (unsigned long)sndLateGapCount,
-             (unsigned long)sndMaxMixMS,
-             (unsigned long)sndLateMixCount);
-    traceStartup(info);
     delete[] sndData;
     sndData = NULL;
     audioReady = false;
@@ -253,7 +224,7 @@ static void sndFree() {
 
 static void sndStartAfterFirstFrame() {
     if (disableAudio) {
-        traceStartup("14 audio: disabled by -nosound");
+        traceStartup("audio: disabled by -nosound");
         return;
     }
 
@@ -262,16 +233,14 @@ static void sndStartAfterFirstFrame() {
     // still creating its renderer and uploading the startup resources (WinUAE
     // happens to tolerate that ordering).  Start AHI only after a complete
     // game frame has proved that GAPI and the PiStorm3D context are ready.
-    traceStartup("14 late SDL/AHI init: begin");
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
-        traceSDLError("15 late SDL/AHI init FAILED");
+        traceSDLError("Audio initialization failed");
         return;
     }
-    traceStartup("15 late SDL/AHI init: subsystem OK, opening audio");
 
     audioReady = sndInit();
     if (!audioReady) {
-        traceStartup("16 late SDL/AHI init: audio open FAILED, sound disabled");
+        traceStartup("Audio open failed; sound disabled");
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return;
     }
@@ -283,20 +252,10 @@ static void sndStartAfterFirstFrame() {
     // aggressive value.  Change it only after SDL_OpenAudio has configured
     // the task and before playback is unpaused.
     struct Task *audioTask = FindTask("SDL subtask");
-    if (audioTask) {
-        int oldPriority = SetTaskPri(audioTask, SND_TASK_PRIORITY);
-        char info[96];
-        snprintf(info, sizeof(info),
-                 "16 SDL/AHI task priority: %d -> %d",
-                 oldPriority, SND_TASK_PRIORITY);
-        traceStartup(info);
-    } else {
-        traceStartup("16 SDL/AHI task priority: task NOT FOUND");
-    }
+    if (audioTask)
+        SetTaskPri(audioTask, SND_TASK_PRIORITY);
 
-    traceStartup("17 SDL/AHI playback: unpause");
     SDL_PauseAudio(0);
-    traceStartup("18 SDL/AHI playback: running");
 }
 
 static InputKey codeToInputKey(SDLKey code) {
@@ -423,19 +382,15 @@ static void inputUpdate() {
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
             case SDL_QUIT:
-                traceStartup("input: SDL_QUIT");
                 Core::isQuit = true;
                 break;
             case SDL_KEYDOWN: {
                 if (event.key.keysym.sym == SDLK_F10) {
-                    traceStartup("input: F10 exit");
                     Core::isQuit = true;
                     return;
                 }
                 InputKey key = codeToInputKey(event.key.keysym.sym);
                 if (key != ikNone) {
-                    if (key == ikEscape)
-                        traceStartup("input: SDL Escape key down");
                     Input::setDown(key, 1);
                 }
                 break;
@@ -593,7 +548,6 @@ static int parseArguments(int argc, char **argv, char *&levelName) {
 int main(int argc, char **argv) {
     startupLog = fopen("PROGDIR:OpenLara.log", "w");
     atexit(closeStartupLog);
-    traceStartup("01 main: start");
     traceStartup(versionTag);
 
     cacheDir[0] = saveDir[0] = contentDir[0] = 0;
@@ -608,16 +562,14 @@ int main(int argc, char **argv) {
     if (argResult)
         return argResult == 5 ? 0 : argResult;
 
-    traceStartup("02 MiniGLOpen: begin");
     if (!MiniGLOpen()) {
-        traceStartup("02 MiniGLOpen: FAILED");
+        traceStartup("MiniGLOpen: FAILED");
         return 20;
     }
-    traceStartup("03 MiniGLOpen: OK");
     {
         char info[256];
         snprintf(info, sizeof(info),
-                 "03 MiniGL library %u.%u, dispatch ABI %lu, flags 0x%08lx",
+                 "MiniGL library %u.%u, dispatch ABI %lu, flags 0x%08lx",
                  (unsigned)MiniGLBase->lib_Version,
                  (unsigned)MiniGLBase->lib_Revision,
                  (unsigned long)MiniGLDispatch->abiVersion,
@@ -630,9 +582,8 @@ int main(int argc, char **argv) {
     // creates the context; the renderer also chunks larger ranges.
     mglChooseVertexBufferSize(4096);
 
-    traceStartup("04 SDL_Init video: begin");
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        traceSDLError("04 SDL_Init video FAILED");
+        traceSDLError("SDL_Init video FAILED");
         // libnix fclose() needs dos.library to remain fully usable.  Do not
         // leave the log to its atexit handler after the graphics libraries
         // have already been torn down.
@@ -640,7 +591,6 @@ int main(int argc, char **argv) {
         MiniGLClose();
         return 20;
     }
-    traceStartup("05 SDL_Init video: OK");
 
     // Joystick is optional: a missing lowlevel installation must not prevent
     // the renderer and keyboard controls from starting.  AHI is deliberately
@@ -661,19 +611,18 @@ int main(int argc, char **argv) {
     const VideoMode &videoMode = videoModes[resolutionIndex];
     {
         char info[96];
-        snprintf(info, sizeof(info), "06 SDL_SetVideoMode %dx%dx%d %s: begin",
+        snprintf(info, sizeof(info), "Display: %dx%dx%d %s",
                  videoMode.width, videoMode.height, displayDepth, fullscreen ? "fullscreen" : "windowed");
         traceStartup(info);
     }
     screen = SDL_SetVideoMode(videoMode.width, videoMode.height, displayDepth, SDL_OPENGL | (fullscreen ? SDL_FULLSCREEN : 0));
     if (!screen) {
-        traceSDLError("06 SDL_SetVideoMode FAILED");
+        traceSDLError("SDL_SetVideoMode FAILED");
         closeStartupLog();
         SDL_Quit();
         MiniGLClose();
         return 20;
     }
-    traceStartup("07 SDL_SetVideoMode: OK");
     if (!fullscreen)
         centerMiniGLWindow();
 
@@ -684,9 +633,7 @@ int main(int argc, char **argv) {
     glViewport(0, 0, videoMode.width, videoMode.height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    traceStartup("08 initial black frame: swap begin");
     SDL_GL_SwapBuffers();
-    traceStartup("09 initial black frame: swap OK");
 
     SDL_WM_SetCaption(WND_TITLE, NULL);
     SDL_ShowCursor(SDL_DISABLE);
@@ -694,41 +641,26 @@ int main(int argc, char **argv) {
     Core::height = screen->h;
 
     inputInit();
-    traceStartup("10 Game::init: begin (audio not started)");
     Game::init(levelName);
     // Keep the menu in sync with a command-line override.  Applying this
     // option writes it to settings; MiniGL uses it on the next launch because
     // changing SDL_SetVideoMode in place destroys all GL resources.
     Core::settings.resolution = resolutionIndex;
     Core::settings.detail.displaymode = fullscreen ? Core::Settings::DM_FULLSCREEN : Core::Settings::DM_WINDOWED;
-    traceStartup("11 Game::init: OK");
 
-    traceStartup("12 main loop: begin");
     bool firstFrame = true;
-    bool firstPostAudioFrame = true;
     while (!Core::isQuit) {
         Uint32 frameStartMS = SDL_GetTicks();
         bool framePresented = false;
         inputUpdate();
         if (Core::isQuit) break;
-        if (osLoadTraceFrames) osTraceLoad("post-load frame %d: update begin", 5 - osLoadTraceFrames);
         if (Game::update()) {
-            if (osLoadTraceFrames) osTraceLoad("post-load frame %d: update done, render begin", 5 - osLoadTraceFrames);
             if (Game::render()) {
-                if (osLoadTraceFrames) osTraceLoad("post-load frame %d: render done, swap begin", 5 - osLoadTraceFrames);
                 SDL_GL_SwapBuffers();
-                if (osLoadTraceFrames) {
-                    osTraceLoad("post-load frame %d: swap done", 5 - osLoadTraceFrames);
-                    --osLoadTraceFrames;
-                }
                 framePresented = true;
                 if (firstFrame) {
-                    traceStartup("13 first game frame: presented");
                     firstFrame = false;
                     sndStartAfterFirstFrame();
-                } else if (audioReady && firstPostAudioFrame) {
-                    traceStartup("19 first post-audio game frame: presented");
-                    firstPostAudioFrame = false;
                 }
             }
         } else {
@@ -745,18 +677,12 @@ int main(int argc, char **argv) {
         }
     }
 
-    traceStartup("20 cleanup: begin");
     sndFree();
     Game::deinit();
     inputFree();
-    traceStartup("21 cleanup: closing log before SDL/MiniGL");
     closeStartupLog();
-    puts("22 SDL_Quit: begin");
     SDL_Quit();
-    puts("23 SDL_Quit: OK");
-    puts("24 MiniGLClose: begin");
     MiniGLClose();
-    puts("25 MiniGLClose: OK; returning from main");
     fflush(stdout);
     return 0;
 }
