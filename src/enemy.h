@@ -3539,30 +3539,31 @@ struct EnemyTR2 : Human {
         int   joint;                 // gun joint, -1 for hand-to-hand fighters
     };
 
+    // damage per hit as TR2 (TRX creature files): masked/stick goons 50/80, dogs 100, monks 150 ...
     static const Info& getInfo(TR::Entity::Type type) {
         //                                  hp   dmg  reach  st wk rn atk run danim dst  gun
-        static const Info MASK         = {  25, 30, 450,     3, 1, 2,  7,  9,  20, 12,  -1 };
-        static const Info STICK        = {  27, 25, 400,     1, 2, 10, 9, -1,  26, 11,  -1 };
-        static const Info GUNMAN_1     = {  25, 30, 0,       2, 1, 5,  4, -1,  18, 7,   13 };
+        static const Info MASK         = {  25, 50, 450,     3, 1, 2,  7,  9,  20, 12,  -1 };
+        static const Info STICK        = {  27, 80, 400,     1, 2, 10, 9, -1,  26, 11,  -1 };
+        static const Info GUNMAN_1     = {  25, 150, 0,       2, 1, 5,  4, -1,  18, 7,   13 };
         static const Info GUNMAN_2     = {  20, 30, 0,       1, 2, 3,  5, -1,  19, 7,   13 };
-        static const Info GOON_SHOTGUN = {  45, 40, 0,       1, 3, 4,  7, -1,  32, 11,  13 };
-        static const Info MERCENARY_1  = {  45, 30, 0,       1, 2, 3,  5, -1,  14, 13,  11 };
-        static const Info MERCENARY_2  = {  45, 30, 0,       2, 3, 4,  7, -1,  9,  11,  11 };
-        static const Info MONK         = {  30, 30, 450,     1, 2, 3,  4, 10,  20, 9,   -1 };
-        static const Info DOG          = {  10, 30, 350,     3, 1, 2,  7,  8,  13, 10,  -1 };
+        static const Info GOON_SHOTGUN = {  45, 50, 0,       1, 3, 4,  7, -1,  32, 11,  13 };
+        static const Info MERCENARY_1  = {  45, 8,  0,       1, 2, 3,  5, -1,  14, 13,  11 };
+        static const Info MERCENARY_2  = {  45, 50, 0,       2, 3, 4,  7, -1,  9,  11,  11 };
+        static const Info MONK         = {  30, 150, 450,     1, 2, 3,  4, 10,  20, 9,   -1 };
+        static const Info DOG          = {  10, 100, 350,     3, 1, 2,  7,  8,  13, 10,  -1 };
         static const Info RAT          = {  4,  20, 300,     2, 1, 1,  5, -1,  9,  6,   -1 };
         static const Info FLAME        = {  20, 20, 0,       1, 2, 3,  5, -1,  19, 7,   13 };
         static const Info SPIDER       = {  5,  25, 300,     1, 2, 3,  4,  5, -1, -1,   -1 }; // shatters on death like TR2, leaves no body
         static const Info SPIDER_GIANT = {  40, 100, 400,    1, 2, 3,  4, -1,  2,  7,   -1 };
         static const Info YETI         = {  30, 100, 500,    2, 3, 1,  4,  6,  31, 8,   -1 };
-        static const Info BIRD_MONSTER = {  200, 150, 600,   1, 2, 2,  4,  6,  20, 9,   -1 };
+        static const Info BIRD_MONSTER = {  200, 200, 600,   1, 2, 2,  4,  6,  20, 9,   -1 };
         static const Info GUARD_SPEAR  = {  100, 75, 450,    1, 3, 4,  6, 16, -1, -1,   -1 }; // shatter instead of dying
-        static const Info GUARD_SWORD  = {  80, 75, 450,     1, 2, 2,  4, 11, -1, -1,   -1 };
-        static const Info SHARK        = {  30, 200, 500,    0, 1, 2,  3,  4,  4,  5,   -1 };
+        static const Info GUARD_SWORD  = {  80, 300, 450,     1, 2, 2,  4, 11, -1, -1,   -1 };
+        static const Info SHARK        = {  30, 400, 500,    0, 1, 2,  3,  4,  4,  5,   -1 };
         static const Info BARACUDA     = {  12, 100, 350,    1, 2, 3,  4,  5,  6,  6,   -1 };
         static const Info DIVER        = {  20, 50,  0,      2, 1, 1,  7, -1,  16, 9,   11 };
         static const Info MORAY_1      = {  5,  50,  900,    2, 2, 2,  1, -1,  3,  3,   -1 };
-        static const Info MORAY_2      = {  5,  50,  900,    2, 2, 2,  1, -1,  2,  3,   -1 };
+        static const Info MORAY_2      = {  5,  500,  900,    2, 2, 2,  1, -1,  2,  3,   -1 };
         static const Info CROW         = {  15, 20,  350,    7, 1, 1,  3, -1,  1,  4,   -1 };
         static const Info EAGLE        = {  20, 20,  350,    2, 1, 1,  3, -1,  8,  4,   -1 };
         static const Info DRAGON       = {  300, 150, 1500,  6, 1, 1,  7, -1,  21, 11,  -1 };

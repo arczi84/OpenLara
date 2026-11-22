@@ -1445,6 +1445,7 @@ struct Level : IGame {
             case TR::Entity::VEHICLE_BOAT           : return new VehicleBoat(this, index);
 
             case TR::Entity::HELICOPTER_FLYING      : return new HelicopterFlying(this, index);
+            case TR::Entity::SOUND_CLOCK            : return new ClockChimes(this, index);
 
             case TR::Entity::FISH_EMITTER           : return new DummyController(this, index);
 

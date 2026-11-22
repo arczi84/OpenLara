@@ -3167,6 +3167,9 @@ namespace TR {
                 ANTIPAD     ,
                 COMBAT      ,
                 DUMMY       ,
+                ANTITRIGGER ,       // TR2+: like ACTIVATE, takes the mask away
+                HEAVY_SWITCH,       // TR3+
+                HEAVY_ANTITRIGGER,  // TR3+
             };
         };
     

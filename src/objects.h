@@ -1787,6 +1787,56 @@ struct VehicleBoat : Controller {
     }
 };
 
+// TR2 clock chimes (Venice timed gate): invisible, counts its trigger timer down,
+// strikes the door chime every 2 seconds and once more when the time is up (TRX clock_chimes.c)
+#define CLOCK_CHIME_SFX      208
+#define CLOCK_CHIME_INTERVAL 2.0f
+
+struct ClockChimes : Controller {
+    float lastTimer, nextMark;
+    bool  pending;
+
+    ClockChimes(IGame *game, int entity) : Controller(game, entity), lastTimer(0.0f), nextMark(0.0f), pending(false) {
+        flags.invisible = true;
+    }
+
+    void chime() {
+        Controller *lara = game->getLara(pos);
+        vec3 p = lara ? lara->pos + (pos - lara->pos) * (1.0f / 64.0f) : pos;
+        game->playSound(CLOCK_CHIME_SFX, p, Sound::PAN);
+    }
+
+    virtual void update() {
+        flags.invisible = true;
+        if (timer <= 0.0f) { // no time set (switch only) or already struck out
+            lastTimer = timer;
+            return;
+        }
+        if (timer > lastTimer) { // (re)set by a trigger (pads keep doing it while Lara stands on them)
+            pending   = true;
+            timer     = max(EPS, timer - Core::deltaTime);
+            lastTimer = timer;
+            return;
+        }
+        timer = max(0.0f, timer - Core::deltaTime); // runs: strike at once, then every 2 seconds
+        if (pending) {
+            chime();
+            pending  = false;
+            nextMark = timer - CLOCK_CHIME_INTERVAL;
+        } else if (timer <= nextMark) {
+            chime();
+            nextMark -= CLOCK_CHIME_INTERVAL;
+        }
+        if (timer == 0.0f) {
+            chime();
+            timer        = -1.0f;
+            flags.active = 0;
+            deactivate();
+        }
+        lastTimer = timer;
+    }
+};
+
 #define HELICOPTER_SPEED 3000
 #define HELICOPTER_RANGE (1024 * 30)
 
@@ -2026,15 +2076,23 @@ struct TrapTR2 : Controller {
     Move  move;
     float fall;
     bool  stopped;
+    int   touchJoint;  // blades: only this joint hurts, only while cutting (TRX blade.c / killer_statue.c)
+    float touchDamage; // per frame at 30 fps
 
-    TrapTR2(IGame *game, int entity) : Controller(game, entity), fall(0.0f), stopped(false) {
+    TrapTR2(IGame *game, int entity) : Controller(game, entity), fall(0.0f), stopped(false), touchJoint(-1), touchDamage(0.0f) {
         stateIdle   = 0;
         stateActive = 1;
         damage      = 300.0f;
         move        = MOVE_NONE;
         switch (getEntity().type) {
-            case TR::Entity::TRAP_BLADE_WALL    :
-            case TR::Entity::TRAP_BLADE_STATUE  : stateIdle = 1; stateActive = 2; break;
+            case TR::Entity::TRAP_BLADE_WALL    : // starts set (raised), cuts while triggered
+                stateIdle = 1; stateActive = 2; damage = 0.0f; touchJoint = 1; touchDamage = 100.0f;
+                animation.setAnim(2);
+                break;
+            case TR::Entity::TRAP_BLADE_STATUE  : // Bartoli's knights: swords raised until Lara comes in
+                stateIdle = 1; stateActive = 2; damage = 0.0f; touchJoint = 7; touchDamage = 20.0f;
+                animation.setAnim(3);
+                break;
             case TR::Entity::TRAP_SPINDLE       : stateIdle = 1; stateActive = 2; move = MOVE_GROUND; break;
             case TR::Entity::TRAP_SPIKES_WALL   : move = MOVE_WALL; damage = 600.0f; break;
             case TR::Entity::TRAP_SPIKES_CEILING: move = MOVE_CEILING; damage = 600.0f; break;
@@ -2064,7 +2122,20 @@ struct TrapTR2 : Controller {
         updateAnimation(true);
 
         bool active = isActive();
-        animation.setState(active ? stateActive : stateIdle);
+        if (touchJoint >= 0) { // TR2 blades: a cut starts only from the set pose, then it returns and cuts again
+            animation.setState((active && state == stateIdle) ? stateActive : stateIdle);
+            if (state == stateActive && getModel() && touchJoint < getModel()->mCount) {
+                Controller *lara = game->getLara(pos);
+                if (lara && checkRange(lara, 2048.0f)) {
+                    Box box = lara->getBoundingBox();
+                    box.min -= vec3(96.0f);
+                    box.max += vec3(96.0f);
+                    if (box.contains(getJoint(touchJoint).pos))
+                        lara->hit(touchDamage * 30.0f * Core::deltaTime, this);
+                }
+            }
+        } else
+            animation.setState(active ? stateActive : stateIdle);
 
         vec3  dir   = getDir();
         float frame = TR2_FRAME;

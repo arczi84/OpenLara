@@ -1959,6 +1959,16 @@ struct Lara : Character {
                     }
                 }
             } else {
+                // TR2 flip maps can take the floor away under an item (Bartoli's green dragon, lying on the floor
+                // of the normal room, hung 512 above it once the map was flipped): put it down on the floor first
+                if (hasLadders() && entity.modelIndex < 0 && !level->rooms[controller->getRoomIndex()].flags.water && checkRange(controller, 1024.0f)) {
+                    TR::Level::FloorInfo fi;
+                    controller->getFloorInfo(controller->getRoomIndex(), controller->pos, fi);
+                    if (fi.floor > controller->pos.y + 64.0f && fi.floor - controller->pos.y <= 2048.0f) {
+                        controller->pos.y = fi.floor;
+                        controller->updateRoom();
+                    }
+                }
                 if (!canPickup(controller))
                     continue;
 
@@ -2196,6 +2206,12 @@ struct Lara : Character {
                 TR::Entity &entity = level->entities[info.trigCmd[cmdIndex++].args];
                 KeyHole *controller = (KeyHole*)entity.controller;
 
+                if (entity.type == TR::Entity::DETONATOR) { // TR2 plunger box: fires once the plunger went down (updateDetonator)
+                    if (((Controller*)entity.controller)->flags.state != TR::Entity::asInactive)
+                        return;
+                    break;
+                }
+
                 if (controller->flags.state == TR::Entity::asNone) {
                     if (controller->flags.active == TR::ACTIVE || state != STATE_STOP)
                         return;
@@ -2256,7 +2272,11 @@ struct Lara : Character {
                 break;
 
             case TR::Level::Trigger::HEAVY :
+            case TR::Level::Trigger::HEAVY_SWITCH :
+            case TR::Level::Trigger::HEAVY_ANTITRIGGER :
                 if (!heavy) return;
+                break;
+            case TR::Level::Trigger::ANTITRIGGER : // TR2: fires like ACTIVATE but switches its items off (Bartoli's knights)
                 break;
             case TR::Level::Trigger::DUMMY :
                 return;
@@ -2280,13 +2300,21 @@ struct Lara : Character {
 
                     if (flags.once)
                         break;
+                    bool expired = controller->timer == -1.0f && flags.active == TR::ACTIVE;
                     controller->timer = timer;
 
-                    if (info.trigger == TR::Level::Trigger::SWITCH)
+                    // a switch on a timed item whose time ran out (Venice gate under the clock) opens it again:
+                    // TR2 would toggle it off here, so the next press showed the gate "closing" while it was closed
+                    bool anti = info.trigger == TR::Level::Trigger::ANTIPAD || info.trigger == TR::Level::Trigger::ANTITRIGGER || info.trigger == TR::Level::Trigger::HEAVY_ANTITRIGGER;
+                    if (info.trigger == TR::Level::Trigger::SWITCH && expired)
+                        ;
+                    else if (info.trigger == TR::Level::Trigger::SWITCH || info.trigger == TR::Level::Trigger::HEAVY_SWITCH)
                         flags.active ^= info.trigInfo.mask;
-                    else if (info.trigger == TR::Level::Trigger::ANTIPAD)
+                    else if (anti) {
                         flags.active &= ~info.trigInfo.mask;
-                    else
+                        if (info.trigInfo.once && !(level->version & TR::VER_TR1)) // TR2: a one-shot anti trigger switches its items off for good
+                            flags.once = true;
+                    } else
                         flags.active |= info.trigInfo.mask;
 
                     if (flags.active != TR::ACTIVE)
@@ -2368,7 +2396,7 @@ struct Lara : Character {
 
                     if (info.trigger == TR::Level::Trigger::SWITCH)
                         flags.active ^= info.trigInfo.mask;
-                    else if (info.trigger == TR::Level::Trigger::ANTIPAD)
+                    else if (info.trigger == TR::Level::Trigger::ANTIPAD || info.trigger == TR::Level::Trigger::ANTITRIGGER)
                         flags.active &= ~info.trigInfo.mask;
                     else
                         flags.active |= info.trigInfo.mask;
@@ -2801,6 +2829,15 @@ struct Lara : Character {
                     continue;
             } else if (e.type != TR::Entity::DETONATOR || !checkRange(c, DETONATOR_RANGE) || c->flags.state == TR::Entity::asActive)
                 continue;
+            if (e.type == TR::Entity::DETONATOR) { // TR2: the plunger box takes the detonator key (key 2) and uses it up
+                int *count = game->invCount(TR::Entity::INV_KEY_ITEM_2);
+                if (!count || *count <= 0) {
+                    if (isPressed(ACTION))
+                        game->playSound(TR::SND_NO, pos, Sound::PAN);
+                    return false;
+                }
+                inventory->remove(TR::Entity::INV_KEY_ITEM_2);
+            }
             detonator = c;
             detonated = false;
             c->activate();
@@ -2821,8 +2858,12 @@ struct Lara : Character {
             if (detonator->getEntity().type == TR::Entity::ENEMY_DRAGON_FRONT) {
                 detonator->pullDagger();
                 levelEndTimer = DAGGER_END_TIME;
-            } else
+            } else {
+                // the box is the "key hole" of its KEY trigger (building explosion, flip, Bartoli's green dragon):
+                // it fires when the box is done, as TR2's KeyTrigger after the plunger
+                detonator->flags.state = TR::Entity::asInactive;
                 checkTrigger(detonator, true);
+            }
         }
         if (animation.index != detonatorAnim || animation.frameIndex < detonatorFrame) { // ended or looped, its bank has no way back
             detonator = NULL;
@@ -2939,8 +2980,42 @@ struct Lara : Character {
         return h;
     }
 
+    // does the hull at p (yaw) overlap a collidable static mesh (Bartoli mooring poles)
+    bool boatHitsStatic(const vec3 &p, float yaw) {
+        float s = sinf(yaw), co = cosf(yaw);
+        for (int r = 0; r < level->roomsCount; r++) {
+            const TR::Room &room = level->rooms[r];
+            if (!room.meshesCount)
+                continue;
+            if (p.x < room.info.x - 2048 || p.x > room.info.x + room.xSectors * 1024 + 2048 ||
+                p.z < room.info.z - 2048 || p.z > room.info.z + room.zSectors * 1024 + 2048 ||
+                p.y < room.info.yTop - 2048 || p.y > room.info.yBottom + 2048)
+                continue;
+            for (int i = 0; i < room.meshesCount; i++) {
+                TR::Room::Mesh &m  = room.meshes[i];
+                TR::StaticMesh &sm = level->staticMeshes[m.meshIndex];
+                if (sm.flags != 2) continue;
+                Box b;
+                sm.getBox(true, m.rotation, b);
+                if (b.max.x - b.min.x < 4.0f || b.max.z - b.min.z < 4.0f) continue; // no collision box
+                b.translate(vec3(float(m.x), float(m.y), float(m.z)));
+                if (b.max.y < p.y - 384.0f || b.min.y > p.y + 128.0f) continue;   // above or below the hull
+                vec3  c  = b.center() - p;
+                float hx = (b.max.x - b.min.x) * 0.5f, hz = (b.max.z - b.min.z) * 0.5f;
+                float lx = c.x * co - c.z * s;   // side
+                float lz = c.x * s  + c.z * co;  // front
+                float ex = fabsf(co) * hx + fabsf(s) * hz, ez = fabsf(s) * hx + fabsf(co) * hz; // the box in boat space
+                if (fabsf(lx) < BOAT_SIDE + ex && fabsf(lz) < BOAT_FRONT + ez)
+                    return true;
+            }
+        }
+        return false;
+    }
+
     // a hull corner (side, front in boat space) may climb at most BOAT_STEP a frame, as in TR2
     bool boatCornersFree(const vec3 &from, const vec3 &to, float yaw) {
+        if (boatHitsStatic(to, yaw) && !boatHitsStatic(from, yaw))
+            return false;
         static const float c[5][2] = { { -BOAT_SIDE, BOAT_FRONT }, { BOAT_SIDE, BOAT_FRONT }, { -BOAT_SIDE, -BOAT_FRONT }, { BOAT_SIDE, -BOAT_FRONT }, { 0.0f, 0.0f } };
         float s = sinf(yaw), co = cosf(yaw);
         for (int i = 0; i < 5; i++) {
@@ -3141,6 +3216,10 @@ struct Lara : Character {
 
     TR::Level::FloorInfo ladderColumn(const vec3 &p) {
         int16 room = getRoomIndex();
+        // go up or down Lara's own column to the height first: from the room she is in, a point in front
+        // above a passage's lintel stays in the passage and reads its ceiling as a wall
+        // (Lara's Home zipline: she climbed into the air above the roof instead of onto it)
+        level->getSector(room, vec3(pos.x, p.y, pos.z));
         level->getSector(room, p);
         TR::Level::FloorInfo info;
         getFloorInfo(room, p, info);
@@ -4369,7 +4448,7 @@ struct Lara : Character {
             if (canHitAnim()) { // TODO: check enemy type and health here
             // get hit dir
                 if (hitDir == -1) {
-                    if (health > 0)
+                    if (health > 0 && (level->version & TR::VER_TR1)) // TR2 enemies hurt Lara (and make her cry out) only with their attacks
                         game->playSound(TR::SND_HIT, pos, Sound::PAN);
                     hitTime = 0.0f;
                 }
