@@ -3552,7 +3552,7 @@ struct EnemyTR2 : Human {
         static const Info DOG          = {  10, 30, 350,     3, 1, 2,  7,  8,  13, 10,  -1 };
         static const Info RAT          = {  4,  20, 300,     2, 1, 1,  5, -1,  9,  6,   -1 };
         static const Info FLAME        = {  20, 20, 0,       1, 2, 3,  5, -1,  19, 7,   13 };
-        static const Info SPIDER       = {  5,  25, 300,     1, 2, 3,  4,  5,  4,  7,   -1 };
+        static const Info SPIDER       = {  5,  25, 300,     1, 2, 3,  4,  5, -1, -1,   -1 }; // shatters on death like TR2, leaves no body
         static const Info SPIDER_GIANT = {  40, 100, 400,    1, 2, 3,  4, -1,  2,  7,   -1 };
         static const Info YETI         = {  30, 100, 500,    2, 3, 1,  4,  6,  31, 8,   -1 };
         static const Info BIRD_MONSTER = {  200, 150, 600,   1, 2, 2,  4,  6,  20, 9,   -1 };

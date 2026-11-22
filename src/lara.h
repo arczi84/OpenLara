@@ -56,6 +56,18 @@
 #define VEHICLE_SPEED_SNOW  100.0f
 #define VEHICLE_SPEED_BACK  -20.0f
 #define VEHICLE_TURN        (DEG2RAD * 90.0f)
+// TR2 boat (units per frame at 30 fps)
+#define BOAT_SPEED_MAX      90.0f
+#define BOAT_SPEED_FAST     140.0f  // Forward + Action
+#define BOAT_SPEED_SLOW     30.0f   // Forward + Walk
+#define BOAT_SPEED_MIN      20.0f
+#define BOAT_SPEED_BACK     -20.0f
+#define BOAT_ACCEL          5.0f
+#define BOAT_BRAKE          5.0f
+#define BOAT_TURN           (DEG2RAD * 120.0f)
+#define BOAT_SIDE           300.0f
+#define BOAT_FRONT          750.0f
+#define BOAT_STEP           128.0f  // the most a hull corner climbs in a frame
 #define LARA_HEIGHT         762
 #define LARA_HEIGHT_WATER   400
 #define LARA_RADIUS         100.0f
@@ -2908,6 +2920,8 @@ struct Lara : Character {
             pos.y = min(pos.y, h);
             if (vehicle->getEntity().type == TR::Entity::VEHICLE_BOAT)
                 ((VehicleBoat*)vehicle)->ridden = false;
+            vehicle->angle.x = 0.0f;
+            angle.x = 0.0f;
             vehicle = NULL;
             velocity = vec3(0.0f);
             stand = STAND_AIR;
@@ -2915,6 +2929,113 @@ struct Lara : Character {
             updateRoom();
             return;
         }
+    }
+
+    // boat surface at p: the water level, else the floor (ramps, banks); a wall is far above
+    float boatHeight(const vec3 &p) {
+        float h;
+        if (!vehicleSurface(p, true, h))
+            return -1e9f;
+        return h;
+    }
+
+    // a hull corner (side, front in boat space) may climb at most BOAT_STEP a frame, as in TR2
+    bool boatCornersFree(const vec3 &from, const vec3 &to, float yaw) {
+        static const float c[5][2] = { { -BOAT_SIDE, BOAT_FRONT }, { BOAT_SIDE, BOAT_FRONT }, { -BOAT_SIDE, -BOAT_FRONT }, { BOAT_SIDE, -BOAT_FRONT }, { 0.0f, 0.0f } };
+        float s = sinf(yaw), co = cosf(yaw);
+        for (int i = 0; i < 5; i++) {
+            vec3 off(c[i][1] * s + c[i][0] * co, 0.0f, c[i][1] * co - c[i][0] * s);
+            float oldY = min(from.y, boatHeight(from + off));
+            if (boatHeight(to + off) < oldY - BOAT_STEP)
+                return false;
+        }
+        return true;
+    }
+
+    // TR2 boat: Forward accelerates (Forward+Action fast, Walk slow), Back brakes and reverses,
+    // it runs on water and climbs ramps and banks; a corner that would rise too much in a frame stops it
+    void updateBoat(float frame) {
+        float &speed = vehicleSpeed;
+        bool  turning = (input & (LEFT | RIGHT)) != 0;
+
+        if (input & BACK) {
+            if (speed > 0.0f)
+                speed = max(speed - BOAT_BRAKE * frame, -BOAT_ACCEL); // brake, then reverse
+            else
+                speed = max(speed - BOAT_ACCEL * frame, BOAT_SPEED_BACK);
+        } else if (input & FORTH) {
+            float maxS = (input & ACTION) ? BOAT_SPEED_FAST : ((input & WALK) ? BOAT_SPEED_SLOW : BOAT_SPEED_MAX);
+            if (speed < maxS)
+                speed = min(maxS, speed + (BOAT_ACCEL * 0.5f + BOAT_ACCEL * max(speed, 0.0f) / (2.0f * maxS)) * frame);
+            else if (speed > maxS + 1.0f)
+                speed = max(maxS, speed - frame);
+        } else if (speed >= 0.0f && speed < BOAT_SPEED_MIN && turning) {
+            speed = BOAT_SPEED_MIN;
+        } else if (speed > frame) {
+            speed -= frame;
+        } else
+            speed = 0.0f;
+
+        if (speed != 0.0f || turning) {
+            float w = BOAT_TURN * Core::deltaTime * clamp(fabsf(speed) / BOAT_SPEED_MIN, 0.4f, 1.0f);
+            if ((input & BACK) && speed < 0.0f) w = -w; // reversing steers like TR2
+            if (input & LEFT)  angle.y = clampAngle(angle.y - w);
+            if (input & RIGHT) angle.y = clampAngle(angle.y + w);
+        }
+
+        vec3 dir = vec3(0.0f, angle.y);
+        vec3 d   = dir * speed * frame;
+        vec3 p   = pos;
+        if (d.x != 0.0f || d.z != 0.0f) {
+            if (boatCornersFree(pos, pos + d, angle.y))
+                p = pos + d;
+            else if (boatCornersFree(pos, pos + vec3(d.x, 0.0f, 0.0f), angle.y)) // slide along the wall
+                p = pos + vec3(d.x, 0.0f, 0.0f);
+            else if (boatCornersFree(pos, pos + vec3(0.0f, 0.0f, d.z), angle.y))
+                p = pos + vec3(0.0f, 0.0f, d.z);
+            float moved = (p - pos).dot(dir) / max(frame, EPS);
+            if (speed > 0.0f && moved < speed) speed = max(moved, 0.0f);
+            if (speed < 0.0f && moved > speed) speed = min(moved, 0.0f);
+        }
+
+        float wLevel, wDepth;
+        int16 room = getRoomIndex();
+        level->getWaterInfo(room, vec3(p.x, p.y - 64.0f, p.z), wLevel, wDepth);
+        bool  onWater = wLevel != 0.0f || wDepth != 0.0f;
+        float h = boatHeight(p);
+        if (h < -1e8f) h = p.y; // no surface under the hull: keep the height
+        h -= BOAT_LIFT;
+
+        if (h > p.y + 8.0f) { // over a ramp's end or a drop: fall
+            vehicleFall += GRAVITY * frame;
+            p.y = min(h, p.y + vehicleFall * frame);
+        } else {
+            vehicleFall = 0.0f;
+            p.y = (onWater && h < p.y - 32.0f) ? max(h, p.y - BOAT_FLOAT_SPEED * frame) : h; // rising water lifts it gradually
+        }
+
+        // pitch follows the surface under the bow
+        float hf = boatHeight(p + dir * BOAT_FRONT);
+        float pitch = 0.0f;
+        if (hf > -1e8f && vehicleFall == 0.0f)
+            pitch = clamp(atan2f(p.y - (hf - BOAT_LIFT), BOAT_FRONT), -0.5f, 0.5f);
+        else
+            pitch = angle.x;
+        angle.x += (pitch - angle.x) * min(1.0f, 0.5f * frame);
+        if (fabsf(angle.x) < 0.002f) angle.x = 0.0f;
+
+        pos = p;
+        updateRoom();
+        updateAnimation(false);
+
+        vehicle->pos       = pos;
+        vehicle->angle     = angle;
+        vehicle->roomIndex = roomIndex;
+        vehicle->updateLights();
+
+        flowVelocity = vec3(0.0f);
+        checkTrigger(this, false);
+        updateLights();
     }
 
     void updateVehicle() {
@@ -2931,6 +3052,11 @@ struct Lara : Character {
         float maxV  = boat ? VEHICLE_SPEED_BOAT : VEHICLE_SPEED_SNOW;
         float frame = Core::deltaTime * 30.0f;
         float friction = VEHICLE_FRICTION * frame;
+
+        if (boat) {
+            updateBoat(frame);
+            return;
+        }
 
         if (input & FORTH)
             vehicleSpeed = min(vehicleSpeed + VEHICLE_ACCEL * frame, maxV);

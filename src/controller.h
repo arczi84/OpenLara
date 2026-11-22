@@ -1180,10 +1180,13 @@ struct Controller {
                     case TR::ANIM_CMD_KILL   : 
                         if (animation.isEnded) {
                             deactivate();
-                            // stay on the last frame like TR does: looping back to frame 0
-                            // put a TR2 spider's body back where it was shot
-                            animation.goEnd(false);
-                            return;
+                            // an enemy's body stays on the last frame of its death: looping back to
+                            // frame 0 would put it back where it was shot. Anything else (push blocks)
+                            // still takes the end offset and its next animation, as in TR
+                            if (getEntity().isEnemy()) {
+                                animation.goEnd(false);
+                                return;
+                            }
                         }
                         break;
                     case TR::ANIM_CMD_SOUND  :
@@ -1477,6 +1480,13 @@ struct Controller {
         TR::Entity::Type type = getEntity().type;
         float fDiffuse = TR::Entity::isPickup(type) ? 1.0f : 0.5f;
         float fAmbient = (intensity < 0.0f ? intensityf(getRoom().ambient) : intensity) * fDiffuse;
+        if (intensity >= 0.0f && !(level->version & TR::VER_TR1)) {
+            // TR2+ item shade: 4096 is the texture as it is, 8191 black (2 - shade / 4096, as TR2 draws sprites);
+            // a pickup is kept visible (the Venice cistern dragon has 7936)
+            fAmbient = clamp(2.0f - float(min(int(getEntity().intensity), 0x1FFF)) / 4096.0f, 0.0f, 1.0f);
+            if (TR::Entity::isPickup(type))
+                fAmbient = max(fAmbient, 0.35f);
+        }
         float fAlpha   = (type == TR::Entity::SMOKE || type == TR::Entity::WATER_SPLASH || type == TR::Entity::SPARKLES) ? 0.75f : 1.0f;
 
         uint8 ambient = clamp(int(fAmbient * 255.0f), 0, 255);
