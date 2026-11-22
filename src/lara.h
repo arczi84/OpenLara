@@ -391,6 +391,8 @@ struct Lara : Character {
     Controller *vehicle;
     float       vehicleSpeed;
     float       vehicleFall;
+    bool        vehicleRestore; // loaded a save made on the boat / snowmobile: mount it again
+    bool        vehicleStart;   // level start: TR2 seats Lara on a boat placed exactly where she starts (Bartoli's Hideout)
     bool        canJump;
 
     int32       networkInput;
@@ -569,6 +571,8 @@ struct Lara : Character {
     Lara(IGame *game, int entity) : Character(game, entity, LARA_MAX_HEALTH), wpnCurrent(TR::Entity::NONE), wpnNext(TR::Entity::NONE) {
         ladderPhase = -1;
         vehicle     = NULL;
+        vehicleRestore = false;
+        vehicleStart   = true;
         zipline     = NULL;
         detonator   = NULL;
         flareTimer  = 0.0f;
@@ -783,6 +787,22 @@ struct Lara : Character {
         angle.x  = TR::angle(data.extra.lara.angleX);
         health   = data.extra.lara.health;
         oxygen   = data.extra.lara.oxygen;
+
+        if (vehicle && vehicle->getEntity().type == TR::Entity::VEHICLE_BOAT)
+            ((VehicleBoat*)vehicle)->ridden = false;
+        vehicle        = NULL;
+        vehicleRestore = false;
+        vehicleStart   = false;
+        if (hasLadders()) { // TR2: the saved animation is a vehicle one when the save was made riding
+            for (int k = 0; k < 2; k++) {
+                int model = level->getModelIndex(k ? TR::Entity::LARA_SNOWMOBILE : TR::Entity::LARA_BOAT);
+                if (model <= 0) continue;
+                const TR::Model &m = level->models[model - 1];
+                int first = m.animation - getModel()->animation;
+                if (first > 0 && data.animIndex >= first && data.animIndex < first + vehicleAnimCount(model - 1))
+                    vehicleRestore = true;
+            }
+        }
 
         if (level->isHome()) return;
 
@@ -2177,7 +2197,9 @@ struct Lara : Character {
             case TR::Level::Trigger::SWITCH : {
                 Switch *controller = (Switch*)level->entities[info.trigCmd[cmdIndex++].args].controller;
 
-                if (controller->flags.state != TR::Entity::asActive) {
+                // a TR2 airlock wheel is turned by airlockUse() with Lara's extra animation
+                bool airlock = hasLadders() && controller->getEntity().type == TR::Entity::WHEEL_KNOB;
+                if (controller->flags.state != TR::Entity::asActive && !airlock) {
                     limit = state == STATE_STOP ? (controller->getEntity().type == TR::Entity::SWITCH_BUTTON ? &TR::Limits::SWITCH_BUTTON : &TR::Limits::SWITCH) : &TR::Limits::SWITCH_UNDERWATER;
                     if (checkInteraction(controller, limit, Input::state[camera->cameraIndex][cAction])) {
                         actionState = (controller->state == Switch::STATE_DOWN && stand == STAND_GROUND) ? STATE_SWITCH_UP : STATE_SWITCH_DOWN;
@@ -2237,7 +2259,10 @@ struct Lara : Character {
 
                     keyHole = controller;
 
-                    if (game->invUse(camera->cameraIndex, usedItem)) {
+                    // TR2 shows no key in the hole (TRX keyhole.c): the only model at hand is the inventory one,
+                    // drawn at inventory size it stuck out of the Offshore Rig card readers
+                    bool showKey = !(hasLadders() && actionState == STATE_USE_KEY);
+                    if (game->invUse(camera->cameraIndex, usedItem) && showKey) {
                         keyItem = game->addEntity(usedItem, getRoomIndex(), pos, 0);
                         keyItem->lockMatrix = true;
                         keyItem->pos     = keyHole->pos + vec3(0, -590, 484).rotateY(-keyHole->angle.y);
@@ -2849,6 +2874,54 @@ struct Lara : Character {
         return false;
     }
 
+    // TR2 airlock door wheel (Offshore Rig): Lara turns it with her extra animation of state 4 (LS_EXTRA_AIRLOCK),
+    // the wheel turns with her; when it has stopped, the switch trigger under her opens the door (TRX switch.c)
+    bool airlockUse() {
+        if (!(input & ACTION) || !emptyHands() || state != STATE_STOP || stand != STAND_GROUND)
+            return false;
+
+        int model = level->getModelIndex(TR::Entity::LARA_SPEC);
+        if (model <= 0)
+            return false;
+        int first = level->models[model - 1].animation, anim = -1;
+        for (int i = 0; i < 16 && first + i < level->animsCount; i++) {
+            TR::Animation &a = level->anims[first + i];
+            if (a.state == 4 && a.frameEnd - a.frameStart > 60) {
+                anim = first + i - getModel()->animation;
+                break;
+            }
+        }
+        if (anim < 0)
+            return false;
+
+        for (int i = 0; i < level->entitiesBaseCount; i++) {
+            TR::Entity &e = level->entities[i];
+            if (!e.controller || e.type != TR::Entity::WHEEL_KNOB)
+                continue;
+            Controller *c = (Controller*)e.controller;
+            if (c->flags.state == TR::Entity::asActive || c->state != 0) // turning, or turned already
+                continue;
+            vec3  dir   = c->getDir();
+            vec3  d     = pos - c->pos;
+            float along = d.dot(dir);
+            float side  = d.x * dir.z - d.z * dir.x;
+            if (along < 292.0f - 64.0f || along > 512.0f + 64.0f || fabsf(side) > 220.0f || fabsf(d.y) > 256.0f || getDir().dot(dir) > -0.85f)
+                continue;
+            pos.x   = c->pos.x + dir.x * 212.0f;
+            pos.z   = c->pos.z + dir.z * 212.0f;
+            angle.y = clampAngle(c->angle.y + PI);
+            velocity = vec3(0.0f);
+            detonator = c;
+            detonated = true; // no plunger trigger: the switch trigger does the rest
+            c->activate();
+            detonatorAnim = anim;
+            animation.setAnim(detonatorAnim);
+            detonatorFrame = 0;
+            return true;
+        }
+        return false;
+    }
+
     void updateDetonator() {
         lastInput = input;
         input = getInput();
@@ -2913,6 +2986,68 @@ struct Lara : Character {
         getFloorInfo(room, t, info);
         height = info.floor;
         return info.floor - info.ceiling >= 256.0f;
+    }
+
+    // animations of model index mi: up to the next model's first animation
+    int vehicleAnimCount(int mi) {
+        int first = level->models[mi].animation, next = level->animsCount;
+        for (int i = 0; i < level->modelsCount; i++) {
+            int a = level->models[i].animation;
+            if (a > first && a < next) next = a;
+        }
+        return next - first;
+    }
+
+    // after loading a save made on a vehicle: sit on the nearest one again, keeping the saved animation
+    void vehicleRemount() {
+        vehicleRestore = false;
+        Controller *best = NULL;
+        float bestD = 512.0f * 512.0f;
+        for (int i = 0; i < level->entitiesBaseCount; i++) {
+            TR::Entity &e = level->entities[i];
+            if (!e.controller || (e.type != TR::Entity::VEHICLE_BOAT && e.type != TR::Entity::VEHICLE_SNOWMOBILE_RED))
+                continue;
+            Controller *c = (Controller*)e.controller;
+            vec3 d = c->pos - pos;
+            float dd = d.x * d.x + d.z * d.z;
+            if (dd < bestD && fabsf(d.y) < 512.0f) { bestD = dd; best = c; }
+        }
+        if (!best) return;
+        if (best->getEntity().type == TR::Entity::VEHICLE_BOAT) ((VehicleBoat*)best)->ridden = true;
+        vehicle      = best;
+        vehicleSpeed = 0.0f;
+        vehicleFall  = 0.0f;
+        velocity     = vec3(0.0f);
+        pos          = best->pos;
+        angle.y      = best->angle.y;
+        roomIndex    = best->roomIndex;
+        stand        = STAND_GROUND;
+    }
+
+    // TRX Boat_CheckGetOn get_on 4: Lara starts at the very position of a boat -> she starts on it
+    void vehicleStartMount() {
+        vehicleStart = false;
+        if (!hasLadders() || level->isCutsceneLevel() || vehicle) return;
+        const TR::Entity &le = getEntity();
+        for (int i = 0; i < level->entitiesBaseCount; i++) {
+            TR::Entity &e = level->entities[i];
+            if (!e.controller || e.type != TR::Entity::VEHICLE_BOAT) continue;
+            if (e.x != le.x || e.y != le.y || e.z != le.z) continue;
+            int model = level->getModelIndex(TR::Entity::LARA_BOAT);
+            if (model <= 0) return;
+            Controller *c = (Controller*)e.controller;
+            ((VehicleBoat*)c)->ridden = true;
+            vehicle      = c;
+            vehicleSpeed = 0.0f;
+            vehicleFall  = 0.0f;
+            velocity     = vec3(0.0f);
+            pos          = c->pos;
+            angle        = c->angle;
+            roomIndex    = c->roomIndex;
+            stand        = STAND_GROUND;
+            animation.setAnim(level->models[model - 1].animation - getModel()->animation + 1);
+            return;
+        }
     }
 
     bool vehicleMount() {
@@ -4170,13 +4305,17 @@ struct Lara : Character {
                 default : ;
             }
 
+            if (vehicleStart)
+                vehicleStartMount();
+            if (vehicleRestore)
+                vehicleRemount();
             if (vehicle)
                 updateVehicle();
             else if (zipline)
                 updateZipline();
             else if (detonator)
                 updateDetonator();
-            else if (level->isCutsceneLevel() || !hasLadders() || !(vehicleMount() || ziplineGrab() || detonatorUse()))
+            else if (level->isCutsceneLevel() || !hasLadders() || !(vehicleMount() || ziplineGrab() || detonatorUse() || airlockUse()))
                 Character::update();
             for (int i = 0; i < COUNT(braid); i++) {
                 if (braid[i]) {

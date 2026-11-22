@@ -2187,6 +2187,16 @@ struct TrapTR2 : Controller {
                             deactivate(true);
                     } else {
                         pos += dir * animation.getSpeed() * frame;
+                        // follow the floor: roll down slopes and drop off edges (Offshore Rig drums rolled on in the air)
+                        TR::Level::FloorInfo info;
+                        getFloorInfo(getRoomIndex(), pos, info);
+                        if (info.floor > pos.y + 1.0f) {
+                            fall += GRAVITY * frame;
+                            pos.y = min(info.floor, pos.y + fall * frame);
+                        } else {
+                            pos.y = info.floor;
+                            fall  = 0.0f;
+                        }
                         updateRoom();
                     }
                 }
