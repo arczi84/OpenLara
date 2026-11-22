@@ -8,7 +8,7 @@
 #define MAX_RESERVED_ENTITIES 128
 #define MAX_TRIGGER_COMMANDS  32
 #define MAX_MESHES            1024
-#define MAX_WEAPONS           4
+#define MAX_WEAPONS           7
 #define MAX_JOINTS            32
 
 // Lara's height in units / height in meters
@@ -1618,8 +1618,13 @@ namespace TR {
     union fixed {
         uint32 value;
         struct {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             uint16 L;
             int16  H;
+#else
+            int16   H;
+            uint16  L;
+#endif
         };
 
         operator float() const {
@@ -1696,18 +1701,30 @@ namespace TR {
 
     struct Face {
         union {
-            struct { uint16 texture:15, doubleSided:1; };
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            struct { uint16 texture : 15, doubleSided : 1; };
+#else
+            struct { uint16 doubleSided : 1, texture : 15; };
+#endif
             uint16 value;
         } flags;
 
         union {
-            struct { uint16 additive:1, env:1, shininess:6; };
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            struct { uint16 additive : 1, env : 1, shininess : 6; };
+#else
+            struct { uint16 shininess : 6, env : 1, additive : 1; };
+#endif
             uint16 value;
         } effects;
 
         short3 normal;
         uint16 vertices[4];
-        uint8  triangle:1, colored:1, water:1, flip:5;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        uint8 triangle : 1, colored : 1, water : 1, flip : 5;
+#else
+        uint8 flip : 5, water : 1, colored : 1, triangle : 1;
+#endif
 
         Face() : triangle(0), colored(0), water(0), flip(0) {
             flags.value   = 0;
@@ -1821,9 +1838,27 @@ namespace TR {
         uint16  meshesCount;
         int16   alternateRoom;
         union {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             struct {
-                uint16 water:1, :2, sky:1, :1, wind:1, unused:9, visible:1;
+                uint16 water : 1;
+                uint16 : 2;
+                uint16 sky : 1;
+                uint16 : 1;
+                uint16 wind : 1;
+                uint16 unused : 9;
+                uint16 visible : 1;
             };
+#else
+            struct {
+                uint16 visible : 1;
+                uint16 unused : 9;
+                uint16 wind : 1;
+                uint16 : 1;
+                uint16 sky : 1;
+                uint16 : 2;
+                uint16 water : 1;
+            };
+#endif
             uint16 value;
         } flags;
         uint8   waterScheme;
@@ -1989,29 +2024,60 @@ namespace TR {
     union FloorData {
         uint16 value;
         union Command {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             struct {
-                uint16 func:5, tri:3, sub:7, end:1;
+                uint16 func : 5, tri : 3, sub : 7, end : 1;
             };
+#else
             struct {
-                int16 :5, a:5, b:5, :1;
+                uint16 end : 1, sub : 7, tri : 3, func : 5;
+            };
+#endif
+            struct {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+                int16 : 5, a : 5, b : 5, : 1;
+#else
+            int16:1, b : 5, a : 5, : 5;
+#endif
             } triangle;
         } cmd;
         struct {
-            int16 slantX:8, slantZ:8;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            int16 slantX : 8, slantZ : 8;
+#else
+            int16 slantZ : 8, slantX : 8;
+#endif
         };
         struct {
-            uint16 a:4, b:4, c:4, d:4;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            uint16 a : 4, b : 4, c : 4, d : 4;
+#else
+            uint16 d : 4, c : 4, b : 4, a : 4;
+#endif
         };
         struct TriggerInfo {
-            uint16  timer:8, once:1, mask:5, :2;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            uint16 timer : 8, once : 1, mask : 5, : 2;
+#else
+        uint16:2, mask : 5, once : 1, timer : 8;
+#endif
         } triggerInfo;
         union TriggerCommand {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             struct {
-                uint16 args:10, action:5, end:1;
+                uint16 args : 10, action : 5, end : 1;
             };
             struct {
-                uint16 timer:8, once:1, speed:5, :2;
+                uint16 timer : 8, once : 1, speed : 5, : 2;
             };
+#else
+            struct {
+                uint16 end : 1, action : 5, args : 10;
+            };
+            struct {
+            uint16:2, speed : 5, once : 1, timer : 8;
+            };
+#endif
         } triggerCmd;
 
         enum {
@@ -2041,12 +2107,20 @@ namespace TR {
     };
 
     union Overlap {
-        struct { uint16 boxIndex:15, end:1; };
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        struct { uint16 boxIndex : 15, end : 1; };
+#else
+        struct { uint16 end : 1, boxIndex : 15; };
+#endif
         uint16 value;
     };
 
     struct Flags {
-        uint16 :8, once:1, active:5, :2;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        uint16 : 8, once : 1, active : 5, : 2;
+#else
+        uint16: 2, active : 5, once : 1, : 8;
+#endif
     };
 
     // internal mesh structure
@@ -2060,9 +2134,17 @@ namespace TR {
         short3      center;
         int16       radius;
         union {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             struct {
-                uint16 isStatic:1, reserved:15;
+                uint16 isStatic : 1;
+                uint16 reserved : 15;
             };
+#else
+            struct {
+                uint16 reserved : 15;
+                uint16 isStatic : 1;
+            };
+#endif
             uint16 value;
         }           flags;
         int16       vCount;
@@ -2095,9 +2177,31 @@ namespace TR {
             int16 OCB;
         };
         union Flags {
-            struct { 
-                uint16 state:2, unused:3, smooth:1, :1, invisible:1, once:1, active:5, reverse:1, rendered:1;
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+                struct {
+                uint16 state : 2;
+                uint16 unused : 3;
+                uint16 smooth : 1;
+                uint16 : 1; // unnamed/reserved
+                uint16 invisible : 1;
+                uint16 once : 1;
+                uint16 active : 5;
+                uint16 reverse : 1;
+                uint16 rendered : 1;
             };
+#else
+            struct {
+                uint16 rendered : 1;
+                uint16 reverse : 1;
+                uint16 active : 5;
+                uint16 once : 1;
+                uint16 invisible : 1;
+                uint16 : 1;
+                uint16 smooth : 1;
+                uint16 unused : 3;
+                uint16 state : 2;
+            };
+#endif
             uint16 value;
         } flags;
     // not exists in file
@@ -2123,6 +2227,11 @@ namespace TR {
 
             switch (type) {
             // TR2
+                case AUTOPISTOLS          : return MAGNUMS; // the same weapon under another name
+                case AMMO_AUTOPISTOLS     : return AMMO_MAGNUMS;
+                case INV_AUTOPISTOLS      : return INV_MAGNUMS;
+                case INV_AMMO_AUTOPISTOLS : return INV_AMMO_MAGNUMS;
+                case LARA_AUTOPISTOLS     : return LARA_MAGNUMS;
                 REMAP_2( LARA                 );
                 REMAP_2( LARA_PISTOLS         );
                 REMAP_2( LARA_BRAID           );
@@ -2478,6 +2587,13 @@ namespace TR {
                 || type == INV_AMMO_SHOTGUN
                 || type == INV_AMMO_MAGNUMS
                 || type == INV_AMMO_UZIS
+                || type == INV_M16
+                || type == INV_HARPOON
+                || type == INV_GRENADE
+                || type == INV_AMMO_M16
+                || type == INV_AMMO_HARPOON
+                || type == INV_AMMO_GRENADE
+                || type == INV_FLARES
                 || type == INV_EXPLOSIVE
                 || type == INV_MEDIKIT_SMALL
                 || type == INV_MEDIKIT_BIG
@@ -2773,7 +2889,21 @@ namespace TR {
             int16   speed;  // for sink (underwater current)
         };
         union {
-            struct { uint16 :8, once:1, :5, :2; };
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            struct {
+                uint16 : 8;
+                uint16 once : 1;
+                uint16 : 5;
+                uint16 : 2;
+            };
+#else
+            struct {
+                uint16 : 2;
+                uint16 : 5;
+                uint16 once : 1;
+                uint16 : 8;
+            };
+#endif
             uint16 boxIndex;
         } flags;
     };
@@ -2824,9 +2954,19 @@ namespace TR {
 
         int16   floor; // Height value in global units
         union {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             struct {
-                uint16 index:14, block:1, blockable:1;    // Index into Overlaps[].
+                uint16 index : 14;
+                uint16 block : 1;
+                uint16 blockable : 1;
             };
+#else
+            struct {
+                uint16 blockable : 1;
+                uint16 block : 1;
+                uint16 index : 14;
+            };
+#endif
             uint16 value;
         } overlap;
 
@@ -2864,8 +3004,13 @@ namespace TR {
         float  pitch;
         uint16 index;
         union {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
             struct { uint16 mode:2, count:4, unused:6, camera:1, pitch:1, gain:1, :1; };
             uint16 value;
+#else
+            uint16 value;
+            struct { uint16:1, gain : 1, pitch : 1, camera : 1, unused : 6, count : 4, mode : 2; };
+#endif
         } flags;
     };
 
@@ -3064,7 +3209,7 @@ namespace TR {
         struct Extra {
 
             static int getWeaponIndex(Entity::Type type) {
-                #if MAX_WEAPONS != 4
+                #if MAX_WEAPONS != 7
                     #error update this func first
                 #endif
 
@@ -3093,6 +3238,22 @@ namespace TR {
                     case Entity::INV_AMMO_UZIS     : 
                     case Entity::AMMO_UZIS         : 
                     case Entity::UZIS              : return  3;
+                // TR2 rifles
+                    case Entity::LARA_M16          :
+                    case Entity::INV_M16           :
+                    case Entity::INV_AMMO_M16      :
+                    case Entity::AMMO_M16          :
+                    case Entity::M16               : return  4;
+                    case Entity::LARA_HARPOON      :
+                    case Entity::INV_HARPOON       :
+                    case Entity::INV_AMMO_HARPOON  :
+                    case Entity::AMMO_HARPOON      :
+                    case Entity::HARPOON           : return  5;
+                    case Entity::LARA_GRENADE      :
+                    case Entity::INV_GRENADE       :
+                    case Entity::INV_AMMO_GRENADE  :
+                    case Entity::AMMO_GRENADE      :
+                    case Entity::GRENADE           : return  6;
 
                     default : ASSERT(false);
                 }
@@ -3178,8 +3339,8 @@ namespace TR {
             id = TR::getLevelID(stream.size, stream.name, version, isDemoLevel);
 
             if (version == VER_UNKNOWN || version == VER_TR1_PC || version == VER_TR1_PSX || version == VER_TR1_SAT || version == VER_TR3_PSX) {
-                stream.read(magic);
-
+                
+                magic  = stream.readLE32();
                 if (magic != MAGIC_TR1_PC  &&
                     magic != MAGIC_TR1_SAT &&
                     magic != MAGIC_TR2_PC  &&
@@ -3188,7 +3349,7 @@ namespace TR {
                     magic != MAGIC_TR3_PC3 &&
                     magic != MAGIC_TR3_PSX &&
                     magic != MAGIC_TR4_PC) {
-                    stream.read(magic);
+                    magic = stream.readLE32();
                 }
 
                 switch (magic) {
@@ -3210,8 +3371,23 @@ namespace TR {
                 ASSERT(false);
                 return;
             }
+            else {
+                // LOG version
+                const char* versionstr = "UNKNOWN_VERSION";
+                switch (version) {
+                case VER_TR1_PC: versionstr = "VER_TR1_PC";  break;
+                case VER_TR1_PSX: versionstr = "VER_TR1_PSX"; break;
+                case VER_TR1_SAT: versionstr = "VER_TR1_SAT"; break;
+                case VER_TR2_PC: versionstr = "VER_TR2_PC";  break;
+                case VER_TR3_PC: versionstr = "VER_TR3_PC";  break;
+                case VER_TR3_PSX: versionstr = "VER_TR3_PSX"; break;
+                case VER_TR4_PC: versionstr = "VER_TR4_PC";  break;
+                default: break;
+                }
+                LOG("level format version %s\n", versionstr);
+            }
 
-        #ifdef _GAPI_SW
+        #if defined(_GAPI_SW)
             ASSERT((version & VER_TR1_PC) == VER_TR1_PC);
             if ((version & VER_TR1_PC) != VER_TR1_PC) {
                 return;
@@ -3222,6 +3398,14 @@ namespace TR {
             ASSERT((version & VER_TR1_PSX) == VER_TR1_PSX);
             if ((version & VER_TR1_PSX) != VER_TR1_PSX) {
                 return;
+            }
+        #endif
+
+        #if defined(__MORPHOS__) || defined(__amigaos4__) // ONLY TR1 for now
+        	if ( ((version & VER_TR1_PC) != VER_TR1_PC) && ((version & VER_TR1_PSX) != VER_TR1_PSX)) {
+                version = VER_UNKNOWN;
+                return;
+            
             }
         #endif
 
@@ -3316,16 +3500,15 @@ namespace TR {
         }
 
         void loadTR1_PC (Stream &stream) {
-            stream.read(tiles8, stream.read(tilesCount));
 
+            tilesCount = stream.readLE32();
+            stream.read(tiles8, tilesCount);
             readDataArrays(stream);
             readObjectTex(stream);
             readSpriteTex(stream);
-
             if (isDemoLevel) {
                 stream.read(palette, 256);
             }
-
             readCameras(stream);
             readSoundSources(stream);
             readBoxes(stream);
@@ -3350,11 +3533,11 @@ namespace TR {
             if (!isCutsceneLevel()) {
                 uint32 offsetTexTiles;
                 stream.seek(8);
-                stream.read(offsetTexTiles);
-            // sound offsets
+                offsetTexTiles = stream.readLE32();
+                // sound offsets
                 uint16 numSounds;
                 stream.setPos(22);
-                stream.read(numSounds);
+                numSounds = stream.readLE16();
                 stream.setPos(2086 + numSounds * 512);
                 soundOffsetsCount = numSounds;
                 soundOffsets = new uint32[soundOffsetsCount];
@@ -3363,7 +3546,7 @@ namespace TR {
                 for (int i = 0; i < soundOffsetsCount; i++) {
                     soundOffsets[i] = soundDataSize;
                     uint16 size;
-                    stream.read(size);
+                    size = stream.readLE16();
                     soundDataSize += soundSize[i] = size * 8;
                 }           
             // sound data
@@ -3373,7 +3556,13 @@ namespace TR {
             }
 
             stream.read(tiles4, tilesCount = 13);
-            stream.read(cluts,  clutsCount = 1024);
+
+            cluts = new CLUT[clutsCount = 1024];
+            for (int i = 0; i < clutsCount; i++) {
+                for (int j = 0; j < 16; j++) {
+                    cluts[i].color[j].value = stream.readLE16();
+                }
+            }
 
             readDataArrays(stream);
             readObjectTex(stream);
@@ -3456,8 +3645,13 @@ namespace TR {
         void loadTR2_PC (Stream &stream) {
             stream.read(palette,   256);
             stream.read(palette32, 256);
-            stream.read(tiles8, stream.read(tilesCount));
-            stream.read(tiles16, tilesCount);
+            tilesCount = stream.readLE32();
+            stream.read(tiles8, tilesCount);
+
+            tiles16 = new Tile16[tilesCount];
+            for (int i = 0; i < tilesCount; i++) 
+                for (int j = 0; j < (256 * 256); j++)
+                    tiles16[i].color[j].value = stream.readLE16();
 
             readDataArrays(stream);
             readObjectTex(stream);
@@ -3519,8 +3713,14 @@ namespace TR {
         void loadTR3_PC (Stream &stream) {
             stream.read(palette,   256);
             stream.read(palette32, 256);
-            stream.read(tiles8, stream.read(tilesCount));
-            stream.read(tiles16, tilesCount);
+
+            tilesCount = stream.readLE32();
+            stream.read(tiles8, tilesCount);
+
+            tiles16 = new Tile16[tilesCount];
+            for (int i = 0; i < tilesCount; i++)
+                for (int j = 0; j < (256 * 256); j++)
+                    tiles16[i].color[j].value = stream.readLE16();
 
             readDataArrays(stream);
             readSpriteTex(stream);
@@ -3716,12 +3916,16 @@ namespace TR {
                 stream.seek(4);            
             }
 
-            rooms = stream.read(roomsCount) ? new Room[roomsCount] : NULL;
+            roomsCount = stream.readLE16();
+            rooms = roomsCount ? new Room[roomsCount] : NULL;
             for (int i = 0; i < roomsCount; i++) {
                 readRoom(stream, i);
             }
 
-            stream.read(floors, stream.read(floorsCount));
+			floorsCount = stream.readLE32();
+            floors = new FloorData[floorsCount];
+            for (int i = 0; i < floorsCount; i++)
+                floors[i].value = stream.readLE16();
 
             if (version == VER_TR3_PSX) {
                 // outside room offsets
@@ -3735,65 +3939,124 @@ namespace TR {
                 stream.seek(8 * size);
             }
 
-            stream.read(meshData,    stream.read(meshDataSize));
-            stream.read(meshOffsets, stream.read(meshOffsetsCount));
+			meshDataSize = stream.readLE32();
+            meshData = meshDataSize ? new uint16[meshDataSize] : NULL;
+            stream.raw(meshData, sizeof(uint16) * meshDataSize);
+            
+			meshOffsetsCount = stream.readLE32();
+            meshOffsets = meshOffsetsCount ? new int32[meshOffsetsCount] : NULL;
+            for (int i = 0; i < meshOffsetsCount; i++)
+                meshOffsets[i] = stream.readLE32();
 
             readAnims(stream);
 
-            stream.read(states,      stream.read(statesCount));
-            stream.read(ranges,      stream.read(rangesCount));
-            stream.read(commands,    stream.read(commandsCount));
-            stream.read(nodesData,   stream.read(nodesDataSize));
-            stream.read(frameData,   stream.read(frameDataSize));
+            statesCount = stream.readLE32();
+            states = statesCount ? new AnimState[statesCount] : NULL;
+            for (int i = 0; i < statesCount; i++) {
+                AnimState& state = states[i];
+                state.state = stream.readLE16();
+                state.rangesCount = stream.readLE16();
+                state.rangesOffset = stream.readLE16();
+            }
+
+            rangesCount = stream.readLE32();
+            ranges = rangesCount ? new AnimRange[rangesCount] : NULL;
+            for (int i = 0; i < rangesCount; i++) {
+                AnimRange& range = ranges[i];
+                range.low = stream.readLE16();
+                range.high = stream.readLE16();
+                range.nextAnimation = stream.readLE16();
+                range.nextFrame = stream.readLE16();
+            }
+
+            commandsCount = stream.readLE32();
+            commands = commandsCount ? new int16[commandsCount] : NULL;
+            for (int i = 0; i < commandsCount; i++)
+                commands[i] = stream.readLE16();
+
+            nodesDataSize = stream.readLE32();
+            nodesData = nodesDataSize ? new uint32[nodesDataSize] : NULL;
+            for (int i = 0; i < nodesDataSize; i++)
+                nodesData[i] = stream.readLE32();
+
+            frameDataSize = stream.readLE32();
+            frameData = frameDataSize ? new uint16[frameDataSize] : NULL;
+            for (int i = 0; i < frameDataSize; i++)
+                frameData[i] = stream.readLE16();
 
             readModels(stream);
 
-            stream.read(staticMeshes, stream.read(staticMeshesCount));
+            staticMeshesCount = stream.readLE32();
+            staticMeshes = staticMeshesCount ? new StaticMesh[staticMeshesCount] : NULL;
+            for (int i = 0; i < staticMeshesCount; i++) {
+                StaticMesh& mesh = staticMeshes[i];
+                mesh.id = stream.readLE32();
+                mesh.mesh = stream.readLE16();
+                mesh.vbox.minX = stream.readLE16();
+                mesh.vbox.maxX = stream.readLE16();
+                mesh.vbox.minY = stream.readLE16();
+                mesh.vbox.maxY = stream.readLE16();
+                mesh.vbox.minZ = stream.readLE16();
+                mesh.vbox.maxZ = stream.readLE16();
+                mesh.cbox.minX = stream.readLE16();
+                mesh.cbox.maxX = stream.readLE16();
+                mesh.cbox.minY = stream.readLE16();
+                mesh.cbox.maxY = stream.readLE16();
+                mesh.cbox.minZ = stream.readLE16();
+                mesh.cbox.maxZ = stream.readLE16();
+                mesh.flags = stream.readLE16();
+            }
         }
 
         void readAnims(Stream &stream) {
-            stream.read(animsCount);
+            animsCount = stream.readLE32();
             anims = animsCount ? new Animation[animsCount] : NULL;
             for (int i = 0; i < animsCount; i++) {
                 Animation &anim = anims[i];
-                stream.read(anim.frameOffset);
-                stream.read(anim.frameRate);
-                stream.read(anim.frameSize);
-                stream.read(anim.state);
-                stream.read(anim.speed);
-                stream.read(anim.accel);
+                anim.frameOffset = stream.readLE32();
+                anim.frameRate = stream.read();
+                anim.frameSize = stream.read();
+                anim.state = stream.readLE16();
+                anim.speed.value = stream.readLE32();
+                anim.accel.value = stream.readLE32();
                 if (version & (VER_TR4 | VER_TR5)) {
                     stream.read(anim.speedLateral);
                     stream.read(anim.accelLateral);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+                    anim.speedLateral.value = swap32(anim.speedLateral.value);
+                    anim.accelLateral.value = swap32(anim.accelLateral.value);
+#endif
                 } else {
                     anim.speedLateral.value = 0;
                     anim.accelLateral.value = 0;
                 }
-                stream.read(anim.frameStart);
-                stream.read(anim.frameEnd);
-                stream.read(anim.nextAnimation);
-                stream.read(anim.nextFrame);
-                stream.read(anim.scCount);
-                stream.read(anim.scOffset);
-                stream.read(anim.acCount);
-                stream.read(anim.animCommand);
+                anim.frameStart = stream.readLE16();
+                anim.frameEnd = stream.readLE16();
+                anim.nextAnimation = stream.readLE16();
+                anim.nextFrame = stream.readLE16();
+                anim.scCount = stream.readLE16();
+                anim.scOffset = stream.readLE16();
+                anim.acCount = stream.readLE16();
+                anim.animCommand = stream.readLE16();
             }
 
         }
 
         void readModels(Stream &stream) {
-            models = stream.read(modelsCount) ? new Model[modelsCount] : NULL;
+            modelsCount = stream.readLE32();
+            models = modelsCount ? new Model[modelsCount] : NULL;
             for (int i = 0; i < modelsCount; i++) {
                 Model &m = models[i];
                 uint16 type;
-                m.type = Entity::Type(stream.read(type));
+                type = stream.readLE16();
+                m.type = Entity::Type(type);
                 stream.seek(sizeof(m.index));
                 m.index = i;
-                stream.read(m.mCount);
-                stream.read(m.mStart);
-                stream.read(m.node);
-                stream.read(m.frame);
-                stream.read(m.animation);
+                m.mCount = stream.readLE16();
+                m.mStart = stream.readLE16();
+                m.node = stream.readLE32();
+                m.frame = stream.readLE32();
+                m.animation = stream.readLE16();
                 if (version & VER_PSX) {
                     stream.seek(2);
                 }
@@ -3801,26 +4064,62 @@ namespace TR {
         }
 
         void readCameras(Stream &stream) {
-            stream.read(cameras, stream.read(camerasCount));
+            camerasCount = stream.readLE32();
+            cameras = camerasCount ? new Camera[camerasCount] : NULL;
+            for (int i = 0; i < camerasCount; i++) {
+                Camera& cam = cameras[i];
+                cam.x = stream.readLE32();
+                cam.y = stream.readLE32();
+                cam.z = stream.readLE32();
+                cam.room = stream.readLE16();
+                cam.flags.boxIndex = stream.readLE16();
+            }
         }
 
         void readFlybyCameras(Stream &stream) {
-            stream.read(flybyCameras, stream.read(flybyCamerasCount));
+            flybyCamerasCount = stream.readLE32();
+            flybyCameras = flybyCamerasCount ? new FlybyCamera[flybyCamerasCount] : NULL;
+            for (int i = 0; i < flybyCamerasCount; i++) {
+                FlybyCamera& f = flybyCameras[i];
+                f.x = stream.readLE32();
+                f.y = stream.readLE32();
+                f.z = stream.readLE32();
+                f.dx = stream.readLE32();
+                f.dy = stream.readLE32();
+                f.dz = stream.readLE32();
+                stream.read(f.sequence);
+				stream.read(f.index);
+                f.fov = stream.readLE16();
+                f.timer = stream.readLE16();
+                f.speed = stream.readLE16();
+                f.flags = stream.readLE16();
+                f.room = stream.readLE32();
+            }
         }
 
         void readSoundSources(Stream &stream) {
-            stream.read(soundSources, stream.read(soundSourcesCount));
+            soundSourcesCount = stream.readLE32();
+            soundSources = soundSourcesCount ? new SoundSource[soundSourcesCount] : NULL;
+            for (int i = 0; i < soundSourcesCount; i++) {
+                SoundSource& s = soundSources[i];
+                s.x = stream.readLE32();
+                s.y = stream.readLE32();
+                s.z = stream.readLE32();
+                s.id = stream.readLE16();
+                s.flags = stream.readLE16();
+            }
         }
 
         void readBoxes(Stream &stream) {
-            boxes = stream.read(boxesCount) ? new Box[boxesCount] : NULL;
+            boxesCount = stream.readLE32();
+            boxes = boxesCount ? new Box[boxesCount] : NULL;
             for (int i = 0; i < boxesCount; i++) {
                 Box &b = boxes[i];
                 if (version & VER_TR1) {
-                    stream.read(b.minZ);
-                    stream.read(b.maxZ);
-                    stream.read(b.minX);
-                    stream.read(b.maxX);
+                    b.minZ = stream.readLE32();
+                    b.maxZ = stream.readLE32();
+                    b.minX = stream.readLE32();
+                    b.maxX = stream.readLE32();
                 }
                 
                 if (version & (VER_TR2 | VER_TR3 | VER_TR4 | VER_TR5)) {
@@ -3830,28 +4129,39 @@ namespace TR {
                     b.minX = stream.read(value) * 1024;
                     b.maxX = stream.read(value) * 1024;
                 }
-
-                stream.read(b.floor);
-                stream.read(b.overlap.value);
+                b.floor = stream.readLE16();
+                b.overlap.value = stream.readLE16();
             }
         }
 
         void readOverlaps(Stream &stream) {
-            stream.read(overlaps, stream.read(overlapsCount));
+            overlapsCount = stream.readLE32();
+            overlaps = overlapsCount ? new Overlap[overlapsCount] : NULL;
+            for (int i = 0; i < overlapsCount; i++) {
+                Overlap& s = overlaps[i];
+                s.value = stream.readLE16();
+            }
         }
 
         void readZones(Stream &stream) {
+          
             for (int i = 0; i < 2; i++) {
-                stream.read(zones[i].ground1, boxesCount);
-                stream.read(zones[i].ground2, boxesCount);
+                Zone& s = zones[i];
+                s.ground1 = new uint16[boxesCount];
+                for (int z = 0; z < boxesCount; z++) s.ground1[z] = stream.readLE16();
+                s.ground2 = new uint16[boxesCount];
+                for (int z = 0; z < boxesCount; z++) s.ground2[z] = stream.readLE16();
                 if (!(version & VER_TR1)) {
-                    stream.read(zones[i].ground3, boxesCount);
-                    stream.read(zones[i].ground4, boxesCount);
+                    s.ground3 = new uint16[boxesCount];
+                    for (int z = 0; z < boxesCount; z++) s.ground3[z] = stream.readLE16();
+                    s.ground4 = new uint16[boxesCount];
+                    for (int z = 0; z < boxesCount; z++) s.ground4[z] = stream.readLE16();
                 } else {
                     zones[i].ground3 = NULL;
                     zones[i].ground4 = NULL;
                 }
-                stream.read(zones[i].fly, boxesCount);
+                s.fly = new uint16[boxesCount];
+                for (int z = 0; z < boxesCount; z++) s.fly[z] = stream.readLE16();
             }
         }
 
@@ -3863,29 +4173,54 @@ namespace TR {
         }
 
         void readCameraFrames(Stream &stream) {
-            stream.read(cameraFrames, stream.read(cameraFramesCount));
+            cameraFramesCount = stream.readLE16();
+            cameraFrames = new CameraFrame[cameraFramesCount];
+            for (int i = 0; i < cameraFramesCount; i++) {
+                cameraFrames[i].target.x = stream.readLE16();
+                cameraFrames[i].target.y = stream.readLE16();
+                cameraFrames[i].target.z = stream.readLE16();
+                cameraFrames[i].pos.x = stream.readLE16();
+                cameraFrames[i].pos.y = stream.readLE16();
+                cameraFrames[i].pos.z = stream.readLE16();
+                cameraFrames[i].fov = stream.readLE16();
+                cameraFrames[i].roll = stream.readLE16();
+            }
         }
 
         void readAIObjects(Stream &stream) {
-            stream.read(AIObjects, stream.read(AIObjectsCount));
+            AIObjectsCount = stream.readLE32();
+            AIObjects = AIObjectsCount ? new AIObject[AIObjectsCount] : NULL;
+            for (int i = 0; i < AIObjectsCount; i++) {
+                AIObject& s = AIObjects[i];
+                s.type = stream.readLE16();
+                s.room = stream.readLE16();
+                s.x = stream.readLE32();
+                s.y = stream.readLE32();
+                s.z = stream.readLE32();
+                s.OCB = stream.readLE16();
+                s.flags = stream.readLE16();
+                s.angle = stream.readLE32();
+            }
         }
 
         void readDemoData(Stream &stream) {
-            stream.read(demoData, stream.read(demoDataSize));
+            demoDataSize = stream.readLE16();
+            stream.read(demoData, demoDataSize);
         }
 
         void readSoundMap(Stream &stream) {
             soundsCount = (version & VER_TR1) ? 256 : 370;
-            stream.read(soundsMap, soundsCount);
-            soundsInfo = (stream.read(soundsInfoCount) > 0) ? new SoundInfo[soundsInfoCount] : NULL;
+            soundsMap = new int16[soundsCount];
+            for (int i = 0; i < soundsCount; i++) soundsMap[i] = stream.readLE16();
+            soundsInfoCount = stream.readLE32();
+            soundsInfo = (soundsInfoCount > 0) ? new SoundInfo[soundsInfoCount] : NULL;
             for (int i = 0; i < soundsInfoCount; i++) {
                 SoundInfo &s = soundsInfo[i];
-
-                stream.read(s.index);
+                s.index = stream.readLE16();
                 if (version & (VER_TR1 | VER_TR2)) {
                     uint16 v;
-                    stream.read(v); s.volume = float(v) / 0x7FFF;
-                    stream.read(v); s.chance = float(v) / 0xFFFF;
+                    v = stream.readLE16(); s.volume = float(v) / 0x7FFF;
+                    v = stream.readLE16(); s.chance = float(v) / 0xFFFF;
                     s.range = 8 * 1024;
                     s.pitch = 0.2f;
                 } else {
@@ -3895,20 +4230,23 @@ namespace TR {
                     stream.read(v); s.chance = float(v) / 0xFF;
                     stream.read(v); s.pitch  = float(v) / 0xFF;
                 }
-
-                stream.read(s.flags.value);
+                s.flags.value = stream.readLE16();
 
                 ASSERT(s.volume <= 1.0f);
             }
         }
 
         void readSoundData(Stream &stream) {
-            stream.read(soundDataSize) > 0 ? stream.read(soundData, soundDataSize) : NULL;
-        }
+            soundDataSize = stream.readLE32();
+            soundDataSize > 0 ? stream.read(soundData, soundDataSize) : NULL;
+         }
 
         void readSoundOffsets(Stream &stream) {
-            stream.read(soundOffsetsCount) > 0 ? stream.read(soundOffsets, soundOffsetsCount) : NULL;
-        }
+            soundOffsetsCount = stream.readLE32();
+            soundOffsetsCount > 0 ?  soundOffsets = new uint32[soundOffsetsCount] : NULL;
+            for (int i = 0; i < soundOffsetsCount; i++) soundOffsets[i] = stream.readLE32();
+            
+         }
 
         #define CHUNK(str) ((uint64)((const char*)(str))[0]        | ((uint64)((const char*)(str))[1] << 8)  | ((uint64)((const char*)(str))[2] << 16) | ((uint64)((const char*)(str))[3] << 24) | \
                            ((uint64)((const char*)(str))[4] << 32) | ((uint64)((const char*)(str))[5] << 40) | ((uint64)((const char*)(str))[6] << 48) | ((uint64)((const char*)(str))[7] << 56))
@@ -4664,6 +5002,18 @@ namespace TR {
             cameraFramesCount = (stream.size - 2) / 16;
             cameraFrames = cameraFramesCount ? new CameraFrame[cameraFramesCount] : NULL;
             stream.raw(cameraFrames, cameraFramesCount * 16);
+           /*
+             // Used by loadTR1_SAT
+            for (int i = 0; i < (cameraFramesCount * 16); i++) {
+                cameraFrames[i].target.x = stream.readLE16();
+                cameraFrames[i].target.y = stream.readLE16();
+                cameraFrames[i].target.z = stream.readLE16();
+                cameraFrames[i].pos.x = stream.readLE16();
+                cameraFrames[i].pos.y = stream.readLE16();
+                cameraFrames[i].pos.z = stream.readLE16();
+                cameraFrames[i].fov = stream.readLE16();
+                cameraFrames[i].roll = stream.readLE16();
+            }*/
         }
 
         void appendObjectTex(TextureInfo *&objTex, int32 &count) {
@@ -4710,7 +5060,6 @@ namespace TR {
                     c++;
                 }
             }
-
             for (int i = 0; i < modelsCount; i++) {
                 Model &model = models[i];
                 model.type = Entity::remap(version, model.type);
@@ -4723,7 +5072,6 @@ namespace TR {
             for (int i = 0; i < staticMeshesCount; i++) {
                 initMesh(staticMeshes[i].mesh);
             }
-
             remapMeshOffsetsToIndices();
 
             delete[] meshData;
@@ -4873,17 +5221,26 @@ namespace TR {
                     case Entity::LARA_PISTOLS        :
                     case Entity::LARA_SHOTGUN        :
                     case Entity::LARA_MAGNUMS        :
-                    case Entity::LARA_UZIS           : extra.weapons[type]     = i; break;
+                    case Entity::LARA_UZIS           :
+                    case Entity::LARA_M16            :
+                    case Entity::LARA_HARPOON        :
+                    case Entity::LARA_GRENADE        : extra.weapons[type]     = i; break;
 
                     case Entity::INV_PISTOLS         :
                     case Entity::INV_SHOTGUN         :
                     case Entity::INV_MAGNUMS         :
-                    case Entity::INV_UZIS            : extra.inv.weapons[type] = i; break;
+                    case Entity::INV_UZIS            :
+                    case Entity::INV_M16             :
+                    case Entity::INV_HARPOON         :
+                    case Entity::INV_GRENADE         : extra.inv.weapons[type] = i; break;
 
                     case Entity::INV_AMMO_PISTOLS    :
                     case Entity::INV_AMMO_SHOTGUN    :
                     case Entity::INV_AMMO_MAGNUMS    :
-                    case Entity::INV_AMMO_UZIS       : extra.inv.ammo[type]  = i; break;
+                    case Entity::INV_AMMO_UZIS       :
+                    case Entity::INV_AMMO_M16        :
+                    case Entity::INV_AMMO_HARPOON    :
+                    case Entity::INV_AMMO_GRENADE    : extra.inv.ammo[type]  = i; break;
 
                     case Entity::INV_MEDIKIT_SMALL   : extra.inv.medikit[0]  = i; break;
                     case Entity::INV_MEDIKIT_BIG     : extra.inv.medikit[1]  = i; break;
@@ -5093,17 +5450,16 @@ namespace TR {
             f.triangle = triangle;
 
             for (int i = 0; i < (triangle ? 3 : 4); i++) {
-                stream.read(f.vertices[i]);
+                f.vertices[i] = stream.readLE16();		
             }
 
             if (triangle) {
                 f.vertices[3] = 0;
             }
 
-            stream.read(f.flags.value);
-
+			f.flags.value = stream.readLE16();
             if (!isRoomMesh && (version & (VER_TR4 | VER_TR5))) {
-                stream.read(f.effects.value);
+				f.effects.value = stream.readLE16();
             }
 
             f.colored = colored;
@@ -5113,9 +5469,13 @@ namespace TR {
             Room &r = rooms[roomIndex];
             Room::Data &d = r.data;
         // room info
-            stream.read(r.info);
+            r.info.x = stream.readLE32();
+            r.info.z = stream.readLE32();
+            r.info.yBottom = stream.readLE32();
+            r.info.yTop = stream.readLE32();
+
         // room data
-            stream.read(d.size);
+            d.size = stream.readLE32();
             int startOffset = stream.pos;
             if (version == VER_TR1_PSX) {
                 stream.seek(2);
@@ -5166,7 +5526,8 @@ namespace TR {
 
                 d.vCount = d.fCount = 0;
             } else {
-                d.vertices = stream.read(d.vCount) ? new Room::Data::Vertex[d.vCount] : NULL;
+                d.vCount = stream.readLE16();
+                d.vertices = d.vCount ? new Room::Data::Vertex[d.vCount] : NULL;
             }
 
             if (version == VER_TR3_PSX) {
@@ -5280,23 +5641,20 @@ namespace TR {
 
                         lighting = 0x1FFF - (lighting << 5); // TODO: calc lighting by lighting = [0..255] and mode = [0..31] values
                     } else {
-                        stream.read(v.pos.x);
-                        stream.read(v.pos.y);
-                        stream.read(v.pos.z);
-                        stream.read(lighting);
-
+                        v.pos.x = stream.readLE16();
+						v.pos.y = stream.readLE16();
+						v.pos.z = stream.readLE16();
+						lighting = stream.readLE16();
                         if (version == VER_TR2_PC || version == VER_TR3_PC || version == VER_TR4_PC) {
-                            stream.read(v.attributes);
+							v.attributes = stream.readLE16();
                         }
 
                         if (version == VER_TR2_PC) {
-                            stream.read(lighting); // real lighting value
+							lighting = stream.readLE16(); // real lighting value
                         }
 
                         if (version == VER_TR3_PC || version == VER_TR4_PC) {
-                            Color16 color;
-                            stream.read(color.value);
-                            v.color = color;
+                            v.color = Color16(stream.readLE16());
                         }
                     }
 
@@ -5322,9 +5680,11 @@ namespace TR {
                     if ((stream.pos - startOffset) % 4) stream.seek(2);
                     stream.seek(sizeof(uint16) * 4 * d.rCount);
                 } else {
-                    stream.seek(stream.read(d.rCount) * FACE4_SIZE); // uint32 colored (not existing in file)
+					d.rCount = stream.readLE16();
+                    stream.seek(d.rCount * FACE4_SIZE); // uint32 colored (not existing in file)
                 }
-                stream.read(d.tCount);
+                
+				d.tCount = stream.readLE16();
                 stream.setPos(tmp);
 
                 d.fCount = d.rCount + d.tCount;
@@ -5332,11 +5692,10 @@ namespace TR {
 
                 int idx = 0;
 
-                int16 tmpCount;
-                stream.read(tmpCount);
+                int16 tmpCount = stream.readLE16();
                 ASSERT(tmpCount == d.rCount);
 
-                if (version == VER_TR2_PSX) {
+               if (version == VER_TR2_PSX) {
                     for (int i = 0; i < d.rCount; i++)
                         stream.raw(&d.faces[i].flags.value, sizeof(uint16));
                     
@@ -5358,10 +5717,10 @@ namespace TR {
                     }
                 }
 
-                stream.read(tmpCount);
+                tmpCount = stream.readLE16();
                 ASSERT(tmpCount == d.tCount);
 
-                if (version == VER_TR2_PSX) {
+               if (version == VER_TR2_PSX) {
                     stream.seek(2);
                     for (int i = 0; i < d.tCount; i++) {
                         Face &f = d.faces[d.rCount + i];
@@ -5393,18 +5752,35 @@ namespace TR {
                 d.sprites = NULL;
                 d.sCount  = 0;
             } else {
-                stream.read(d.sprites, stream.read(d.sCount));
+                d.sCount = stream.readLE16();
+                d.sprites = new Room::Data::Sprite[d.sCount];
+                for (int j = 0; j < d.sCount; j++) {
+                    d.sprites[j].vertexIndex = stream.readLE16();
+                    d.sprites[j].texture = stream.readLE16();
+                }
             }
 
             if (version == VER_TR3_PSX && partsCount != 0) {
                 stream.seek(4); // skip unknown shit
             }
-
             ASSERT(int(d.size * 2) >= stream.pos - startOffset);
             stream.setPos(startOffset + d.size * 2);
 
         // portals
-            stream.read(r.portals, stream.read(r.portalsCount));
+			r.portalsCount = stream.readLE16();
+            r.portals = new Room::Portal[r.portalsCount];
+            for (int j = 0; j < r.portalsCount; j++) {
+                Room::Portal& p = r.portals[j];
+                p.roomIndex = stream.readLE16();
+                p.normal.x = stream.readLE16();
+                p.normal.y = stream.readLE16();
+                p.normal.z = stream.readLE16();
+                for (int k = 0; k < 4; k++) {
+                    p.vertices[k].x = stream.readLE16();
+                    p.vertices[k].y = stream.readLE16();
+                    p.vertices[k].z = stream.readLE16();
+                }
+            }
 
             if (version == VER_TR2_PSX || version == VER_TR3_PSX) {
                 for (int i = 0; i < r.portalsCount; i++) {
@@ -5416,15 +5792,13 @@ namespace TR {
             }
 
         // sectors
-            stream.read(r.zSectors);
-            stream.read(r.xSectors);
-            r.sectors = (r.zSectors * r.xSectors > 0) ? new Room::Sector[r.zSectors * r.xSectors] : NULL;
-
+            r.zSectors = stream.readLE16();
+            r.xSectors = stream.readLE16();
+            r.sectors = (r.zSectors * r.xSectors > 0) ? new Room::Sector[r.zSectors * r.xSectors] : NULL;		
             for (int i = 0; i < r.zSectors * r.xSectors; i++) {
                 Room::Sector &s = r.sectors[i];
-
-                stream.read(s.floorIndex);
-                stream.read(s.boxIndex);
+                s.floorIndex = stream.readLE16();
+                s.boxIndex   = stream.readLE16();
                 stream.read(s.roomBelow);
                 stream.read(s.floor);
                 stream.read(s.roomAbove);
@@ -5442,27 +5816,27 @@ namespace TR {
             }
 
         // ambient light luminance
-            stream.read(r.ambient);
-
+            r.ambient = stream.readLE16();
             if (version != VER_TR3_PSX) {
                 if (version & (VER_TR2 | VER_TR3 | VER_TR4))
-                    stream.read(r.ambient2);
+                    r.ambient2 = stream.readLE16();
 
                 if (version & VER_TR2)
-                    stream.read(r.lightMode);
+                    r.lightMode = stream.readLE16();
+                   
             } else {
                 r.ambient = 0x1FFF - r.ambient;
-                stream.read(r.ambient2);
+                r.ambient2 = stream.readLE16();
             }
 
         // lights
-            r.lights = stream.read(r.lightsCount) ? new Room::Light[r.lightsCount] : NULL;
+            r.lightsCount = stream.readLE16();
+            r.lights = r.lightsCount ? new Room::Light[r.lightsCount] : NULL;
             for (int i = 0; i < r.lightsCount; i++) {
                 Room::Light &light = r.lights[i];
-                stream.read(light.x);
-                stream.read(light.y);
-                stream.read(light.z);
-
+                light.x = stream.readLE32();
+                light.y = stream.readLE32();
+                light.z = stream.readLE32();
                 uint16 intensity;
 
                 if (version & (VER_TR3 | VER_TR4)) {
@@ -5483,7 +5857,7 @@ namespace TR {
                     stream.read(light.dir);
                     light.radius = uint32(light.length);
                 } else {
-                    stream.read(intensity);
+                    intensity = stream.readLE16();
                 }
 
                 if (version == VER_TR1_PSX) {
@@ -5495,7 +5869,7 @@ namespace TR {
                 }
 
                 if (version != VER_TR4_PC) {
-                    stream.read(light.radius);
+					light.radius = stream.readLE32();
                 }
 
                 if (version & VER_TR2) {
@@ -5516,17 +5890,18 @@ namespace TR {
                 light.radius *= 2;
             }
         // meshes
-            stream.read(r.meshesCount);
+            r.meshesCount = stream.readLE16();
             r.meshes = r.meshesCount ? new Room::Mesh[r.meshesCount] : NULL;
             for (int i = 0; i < r.meshesCount; i++) {
                 Room::Mesh &m = r.meshes[i];
-                stream.read(m.x);
-                stream.read(m.y);
-                stream.read(m.z);
-                stream.read(m.rotation.value);
+                m.x = stream.readLE32();
+                m.y = stream.readLE32();
+                m.z = stream.readLE32();
+                m.rotation.value = stream.readLE16();
+
                 if (version & (VER_TR3 | VER_TR4)) {
                     Color16 color;
-                    stream.read(color.value);
+                    color.value = stream.readLE16();
                     m.color = color;
                     stream.seek(2);
                 } else {
@@ -5535,7 +5910,7 @@ namespace TR {
                     }
 
                     uint16 intensity;
-                    stream.read(intensity);
+                    intensity = stream.readLE16();
                     if ((version & VER_VERSION) < VER_TR3) {
                         int value = clamp((intensity > 0x1FFF) ? 255 : (255 - (intensity >> 5)), 0, 255);
                         m.color.r = m.color.g = m.color.b = value;
@@ -5543,15 +5918,15 @@ namespace TR {
                     }
                 }
 
-                stream.read(m.meshID);
+                m.meshID = stream.readLE16();
                 if (version == VER_TR1_PSX) {
                     stream.seek(2); // skip padding
                 }
             }
 
         // misc flags
-            stream.read(r.alternateRoom);
-            stream.read(r.flags.value);
+            r.alternateRoom = stream.readLE16();
+            r.flags.value = stream.readLE16();
             if (version & (VER_TR3 | VER_TR4)) {
                 stream.read(r.waterScheme);
                 stream.read(r.reverbType);
@@ -5570,7 +5945,6 @@ namespace TR {
             }
 
             Stream stream(NULL, &meshData[offset / 2], 1024 * 1024);
-
             Mesh &mesh = meshes[meshesCount++];
             mesh.offset = offset;
 
@@ -5586,9 +5960,10 @@ namespace TR {
                 stream.read(mesh.vCount);
                 stream.read(mesh.rCount);
             } else {
-                stream.read(mesh.center);
-                stream.read(mesh.radius);
-
+                mesh.center.x = stream.readLE16();
+                mesh.center.y = stream.readLE16();
+                mesh.center.z = stream.readLE16();
+                mesh.radius = stream.readLE16();
                 if (version == VER_TR3_PSX) {
                     uint8  tmp;
                     uint16 tmpOffset;
@@ -5597,8 +5972,8 @@ namespace TR {
                     stream.read(tmpOffset);
                     fOffset          = stream.pos + tmpOffset;
                 } else {
-                    stream.read(mesh.flags.value);
-                    stream.read(mesh.vCount);
+                    mesh.flags.value = stream.readLE16();
+                    mesh.vCount = stream.readLE16();
                 }
 
                 if (version == VER_TR1_SAT) {
@@ -5691,7 +6066,17 @@ namespace TR {
 
                                     if (!f.colored) {
                                         union {
-                                            struct { uint16 texture:12, flip:4; };
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+                                            struct {
+                                                uint16 texture : 12;
+                                                uint16 flip : 4;
+                                            };
+#else
+                                            struct {
+                                                uint16 flip : 4;
+                                                uint16 texture : 12;
+                                            };
+#endif
                                             uint16 value;
                                         } tri;
 
@@ -5772,24 +6157,24 @@ namespace TR {
                     mesh.vertices = new Mesh::Vertex[mesh.vCount];
                     for (int i = 0; i < mesh.vCount; i++) {
                         short4 &c = mesh.vertices[i].coord;
-                        stream.read(c.x);
-                        stream.read(c.y);
-                        stream.read(c.z);
+                        c.x = stream.readLE16();
+                        c.y = stream.readLE16();
+                        c.z = stream.readLE16();
                     }
                     int16 nCount;
-                    stream.read(nCount);
+                    nCount = stream.readLE16();
                     ASSERT(mesh.vCount == abs(nCount));
                     for (int i = 0; i < mesh.vCount; i++) {
                         short4 &c = mesh.vertices[i].coord;
                         short4 &n = mesh.vertices[i].normal;
                         if (nCount > 0) { // normal
-                            stream.read(n.x);
-                            stream.read(n.y);
-                            stream.read(n.z);
+                            n.x = stream.readLE16();
+                            n.y = stream.readLE16();
+                            n.z = stream.readLE16();
                             n.w = 1;
                             c.w = 0x1FFF;
                         } else { // intensity
-                            stream.read(c.w);
+                            c.w = stream.readLE16();
                             n = short4( 0, 0, 0, 0 );
                         }
                     }
@@ -5804,11 +6189,15 @@ namespace TR {
                     }
 
                     int tmp = stream.pos;
-                    stream.seek(stream.read(rCount) * faceSize4); // uint32 colored (not existing in file)
-                    stream.seek(stream.read(tCount) * faceSize3);
+                    rCount = stream.readLE16();
+                    stream.seek(rCount * faceSize4); // uint32 colored (not existing in file)
+                    tCount = stream.readLE16();
+                    stream.seek(tCount * faceSize3);
                     if (!(version & (VER_TR4 | VER_TR5))) {
-                        stream.seek(stream.read(crCount) * faceSize4);
-                        stream.seek(stream.read(ctCount) * faceSize3);
+                        crCount = stream.readLE16();
+                        stream.seek(crCount * faceSize4);
+                        ctCount = stream.readLE16();
+                        stream.seek(ctCount * faceSize3);
                     }
                     stream.setPos(tmp);
 
@@ -5842,33 +6231,46 @@ namespace TR {
                     mesh.vCount = abs(mesh.vCount);
                     mesh.vertices = new Mesh::Vertex[mesh.vCount];
 
-                    for (int i = 0; i < mesh.vCount; i++)
-                        stream.read(mesh.vertices[i].coord);
+                    for (int i = 0; i < mesh.vCount; i++) {
+                        //stream.read(mesh.vertices[i].coord);
+                        short4& c = mesh.vertices[i].coord;
+                        c.x = stream.readLE16();
+                        c.y = stream.readLE16();
+                        c.z = stream.readLE16();
+                        c.w = stream.readLE16();
+                    }
 
                     for (int i = 0; i < mesh.vCount; i++) {
                         short4 &c = mesh.vertices[i].coord;
                         short4 &n = mesh.vertices[i].normal;
                         if (nCount > 0) { // normal
-                            stream.read(n);
+                           // stream.read(n);
+                            n.x = stream.readLE16();
+                            n.y = stream.readLE16();
+                            n.z = stream.readLE16();
+                            stream.readLE16();
                             n.w = 1;
                             c.w = 0x1FFF;
                         } else { // intensity
-                            stream.read(c.w);
+                           // stream.read(c.w);
+                            c.w = stream.readLE16();
                             n = short4( 0, 0, 0, 0 );
                         }
                     }
 
                     if ((version & VER_TR2) && nCount > 0) { // TODO probably for unused meshes only but need to check
                         uint16 crCount = 0, ctCount = 0;
-                        stream.read(crCount);
+                        crCount = stream.readLE16();
                         stream.seek((FACE4_SIZE + 2) * crCount);
-                        stream.read(ctCount);
+                        ctCount = stream.readLE16();
                         stream.seek((FACE3_SIZE + 2) * ctCount);
                     }
 
                     int tmp = stream.pos;
-                    stream.seek(stream.read(mesh.rCount) * FACE4_SIZE); // uint32 colored (not existing in file)
-                    stream.seek(stream.read(mesh.tCount) * FACE3_SIZE);
+                    mesh.rCount = stream.readLE16();
+                    stream.seek(mesh.rCount * FACE4_SIZE); // uint32 colored (not existing in file)
+                    mesh.tCount = stream.readLE16();
+                    stream.seek(mesh.tCount * FACE3_SIZE);
                     stream.setPos(tmp);
 
                     mesh.fCount = mesh.rCount + mesh.tCount;
@@ -6099,7 +6501,25 @@ namespace TR {
                         uint8   xh3, x3, yh3, y3;
                     } d;
 
-                    stream.raw(&d, sizeof(d));
+                    d.attribute = stream.readLE16();
+                    d.tile = stream.readLE16();
+                    d.xh0 = stream.read();
+                    d.x0 = stream.read();
+                    d.yh0 = stream.read();
+                    d.y0 = stream.read();
+                    d.xh1 = stream.read();
+                    d.x1 = stream.read();
+                    d.yh1 = stream.read();
+                    d.y1 = stream.read();
+                    d.xh2 = stream.read();
+                    d.x2 = stream.read();
+                    d.yh2 = stream.read();
+                    d.y2 = stream.read();
+                    d.xh3 = stream.read();
+                    d.x3 = stream.read();
+                    d.yh3 = stream.read();
+                    d.y3 = stream.read();
+
                     SET_PARAMS(t, d, 0);
                     break;
                 }
@@ -6137,7 +6557,20 @@ namespace TR {
                         uint8   x3, y3;
                         uint16  attribute; 
                     } d;
-                    stream.raw(&d, sizeof(d));
+                    //stream.raw(&d, sizeof(d));
+					d.x0 = stream.read();
+					d.y0 = stream.read();
+					d.clut = stream.readLE16();
+					d.x1 = stream.read();   
+					d.y1 = stream.read();
+					d.tile = stream.readLE16(); 
+					d.x2 = stream.read();   
+					d.y2 = stream.read();   
+					d.unknown2 = stream.readLE16(); 
+					d.x3 = stream.read();   
+					d.y3 = stream.read();   
+					d.attribute = stream.readLE16();    
+
                     if (version == VER_TR3_PSX) {
                         if (d.attribute == 0)
                             d.attribute = 0;
@@ -6160,7 +6593,8 @@ namespace TR {
         }
 
         void readObjectTex(Stream &stream) {
-            objectTextures = stream.read(objectTexturesCount) ? new TextureInfo[objectTexturesCount] : NULL;
+            objectTexturesCount = stream.readLE32();
+            objectTextures = objectTexturesCount ? new TextureInfo[objectTexturesCount] : NULL;
             for (int i = 0; i < objectTexturesCount; i++) {
                 readObjectTex(stream, objectTextures[i]);
             }
@@ -6213,7 +6647,16 @@ namespace TR {
                         uint16  w, h;
                         int16   l, t, r, b;
                     } d;
-                    stream.raw(&d, sizeof(d));
+                    d.tile = stream.readLE16();
+                    d.u = stream.read();
+                    d.v = stream.read();
+                    d.w = stream.readLE16();
+                    d.h = stream.readLE16();
+                    d.l = stream.readLE16();
+                    d.t = stream.readLE16();
+                    d.r = stream.readLE16();
+                    d.b = stream.readLE16();
+                    //stream.raw(&d, sizeof(d));
                     SET_PARAMS(t, d, 0);
                     t.texCoord[0] = t.texCoordAtlas[0] = short2( d.u,                       d.v                       );
                     t.texCoord[1] = t.texCoordAtlas[1] = short2( (uint8)(d.u + (d.w >> 8)), (uint8)(d.v + (d.h >> 8)) );
@@ -6229,7 +6672,17 @@ namespace TR {
                         uint8   u0, v0;
                         uint8   u1, v1;
                     } d;
-                    stream.raw(&d, sizeof(d));
+                    //stream.raw(&d, sizeof(d));
+                    d.l = stream.readLE16();
+                    d.t = stream.readLE16();
+                    d.r = stream.readLE16();
+                    d.b = stream.readLE16();
+                    d.clut = stream.readLE16();
+                    d.tile = stream.readLE16();
+                    d.u0 = stream.read();
+                    d.v0 = stream.read();
+                    d.u1 = stream.read();
+                    d.v1 = stream.read();
                     SET_PARAMS(t, d, d.clut);
                     t.texCoord[0] = t.texCoordAtlas[0] = short2( d.u0, d.v0 );
                     t.texCoord[1] = t.texCoordAtlas[1] = short2( d.u1, d.v1 );
@@ -6242,19 +6695,20 @@ namespace TR {
         }
 
         void readSpriteTex(Stream &stream) {
-            spriteTextures = stream.read(spriteTexturesCount) ? new TextureInfo[spriteTexturesCount] : NULL;
+            spriteTexturesCount = stream.readLE32();
+            spriteTextures = spriteTexturesCount ? new TextureInfo[spriteTexturesCount] : NULL;
             for (int i = 0; i < spriteTexturesCount; i++)
                 readSpriteTex(stream, spriteTextures[i]);
 
-            spriteSequences = stream.read(spriteSequencesCount) ? new SpriteSequence[spriteSequencesCount] : NULL;
+            spriteSequencesCount = stream.readLE32();
+            spriteSequences = spriteSequencesCount ? new SpriteSequence[spriteSequencesCount] : NULL;
             for (int i = 0; i < spriteSequencesCount; i++) {
                 SpriteSequence &s = spriteSequences[i];
-                uint16 type;
-                stream.read(type);
+                uint16 type = stream.readLE16();
                 s.type = Entity::remap(version, Entity::Type(type));
-                stream.read(s.unused);
-                stream.read(s.sCount);
-                stream.read(s.sStart);
+                s.unused = stream.readLE16();
+                s.sCount = stream.readLE16();
+                s.sStart = stream.readLE16();
                 s.sCount = -s.sCount;
                 s.transp = 1;
             }
@@ -6281,8 +6735,7 @@ namespace TR {
 
         void readAnimTex(Stream &stream) {
             uint32 animTexBlockSize;
-            stream.read(animTexBlockSize);
-            
+            animTexBlockSize = stream.readLE32();      
             if (animTexBlockSize) {
                 uint16 *animTexBlock = new uint16[animTexBlockSize];
                 for (uint32 i = 0; i < animTexBlockSize; i++) {
@@ -6311,25 +6764,27 @@ namespace TR {
         }
 
         void readEntities(Stream &stream) {
-            entitiesCount = stream.read(entitiesBaseCount) + MAX_RESERVED_ENTITIES;
+            entitiesBaseCount = stream.readLE32();       
+            entitiesCount = entitiesBaseCount + MAX_RESERVED_ENTITIES;
             entities = new Entity[entitiesCount];
             for (int i = 0; i < entitiesBaseCount; i++) {
                 Entity &e = entities[i];
                 uint16 type;
-                e.type = Entity::Type(stream.read(type));
-                stream.read(e.room);
-                stream.read(e.x);
-                stream.read(e.y);
-                stream.read(e.z);
-                stream.read(e.rotation.value);
-                stream.read(e.intensity);
+                type = stream.readLE16();
+                e.type = Entity::Type(type);
+                e.room = stream.readLE16();
+                e.x = stream.readLE32();
+                e.y = stream.readLE32();
+                e.z = stream.readLE32();
+                e.rotation.value = stream.readLE16();
+                e.intensity = stream.readLE16();
                 if (version & (VER_TR2 | VER_TR3)) {
-                    stream.read(e.intensity2);
+                    e.intensity2 = stream.readLE16();
                 }
                 if (version & (VER_TR4 | VER_TR5)) {
-                    stream.read(e.OCB);
+                    e.OCB = stream.readLE16();
                 }
-                stream.read(e.flags.value);
+                e.flags.value = stream.readLE16();
             }
         }
 
@@ -6545,7 +7000,11 @@ namespace TR {
             }
             return Color32(255, 0, 255, 255);
         }
-
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+        static uint32 readLE32(const uint8* p) {
+            return (uint32(p[0]) | (uint32(p[1]) << 8) | (uint32(p[2]) << 16) | (uint32(p[3]) << 24));
+        }
+#endif
         Stream* getSampleStream(int index) const {
             if (!soundOffsets || !soundData) return NULL;
             uint8 *data = soundData + soundOffsets[index];
@@ -6555,7 +7014,13 @@ namespace TR {
                 case VER_TR1_PC  :
                 case VER_TR2_PC  :
                 case VER_TR3_PC  :
-                case VER_TR4_PC  : size = FOURCC(data + 4) + 8; break; // read size from wave header
+                case VER_TR4_PC  : 
+                    size = FOURCC(data + 4) + 8;  
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+                    size = readLE32(data + 4) + 8;
+#endif
+                    //printf("%s index=%d  size=%d\n", __FUNCTION__, index, size);
+                    break; // read size from wave header
                 case VER_TR1_PSX :
                 case VER_TR2_PSX :
                 case VER_TR3_PSX : size = soundSize[index]; break;

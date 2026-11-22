@@ -40,6 +40,8 @@ const char *STR_SV[] = { ""
     , "Tryck Valfri Knapp"
     , "%s - V~alj"
     , "%s - Tillbaka"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "ALTERNATIV"
     , "LAGER"
@@ -70,7 +72,9 @@ const char *STR_SV[] = { ""
     , "Belysning"
     , "Skuggor"
     , "Vatten"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereo"
     , "Enkla Objekt"
     , "Uppl~osning"
@@ -350,6 +354,12 @@ const char *STR_SV[] = { ""
     , "Tinnos F~orlorade Stad"
     , "Meteoritgrottan"
     , "All Hallows"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

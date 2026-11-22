@@ -40,6 +40,8 @@ const char *STR_PL[] = { ""
     , "Wci)snij dowolny przycisk"
     , "%s - Wybierz"
     , "%s - Wr)o)c"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "OPCJE"
     , "EKWIPUNEK"
@@ -70,7 +72,9 @@ const char *STR_PL[] = { ""
     , "Jako)s)c )swiat}la"
     , "Jako)s)c cieni"
     , "Jako)s)c wody"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereoskopia"
     , "Proste przedmioty"
     , "Resolution"
@@ -350,6 +354,12 @@ const char *STR_PL[] = { ""
     , "Zaginione miasto Tinnos"
     , "Grota meteorytu"
     , "Wszyscy )Swi|eci"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

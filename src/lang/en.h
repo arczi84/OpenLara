@@ -40,6 +40,8 @@ const char *STR_EN[] = { ""
     , "Press Any Key"
     , "%s - Select"
     , "%s - Go Back"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "OPTIONS"
     , "INVENTORY"
@@ -70,7 +72,9 @@ const char *STR_EN[] = { ""
     , "Lighting"
     , "Shadows"
     , "Water"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereo"
     , "Simple Items"
     , "Resolution"
@@ -350,6 +354,12 @@ const char *STR_EN[] = { ""
     , "Lost City Of Tinnos"
     , "Meteorite Cavern"
     , "All Hallows"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

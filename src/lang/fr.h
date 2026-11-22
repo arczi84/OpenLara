@@ -40,6 +40,8 @@ const char *STR_FR[] = { ""
     , "Appuyez sur une touche"
     , "%s - Choisir"
     , "%s - Retour"
+    , "Fenetr)e"
+    , "Plein )Ecran"
 // inventory pages
     , "OPTIONS"
     , "INVENTAIRE"
@@ -70,7 +72,9 @@ const char *STR_FR[] = { ""
     , ")Eclairage"
     , "Ombres"
     , "Eau"
+    , "Brouillard"
     , "VSync"
+    , "Mode"
     , "St)er)eo"
     , "Objets Simples"
     , "Resolution"
@@ -350,6 +354,12 @@ const char *STR_FR[] = { ""
     , "La Cité Perdu de Tinos"
     , "La Caverne du M)etéore"
     , "L')Eglise Hallows"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

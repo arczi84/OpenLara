@@ -40,6 +40,8 @@ const char *STR_CZ[] = { ""
     , "Stiskn{ete Kl)avesu"
     , "%s - Vybrat"
     , "%s - Zp{et"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "NASTAVEN)I"
     , "INVENT)A{R"
@@ -70,7 +72,9 @@ const char *STR_CZ[] = { ""
     , "Osv{etlen)i"
     , "St)iny"
     , "Voda"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereo"
     , "Jednoduch)e objekty"
     , "Rozli{sen)i"
@@ -350,6 +354,12 @@ const char *STR_CZ[] = { ""
     , "Ztracen)e M{esto Tinnos"
     , "Meteoritov)a Jeskyn{e"
     , "V{sechny Relikvie"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

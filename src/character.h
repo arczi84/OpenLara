@@ -216,7 +216,7 @@ struct Character : Controller {
             if (p != pos) {
                 if (updateZone())
                     updateLights();
-                else
+                else if (stand != STAND_HANG) // ladders pass sectors without a box
                     pos = p;
             }
         }
@@ -308,11 +308,36 @@ struct Character : Controller {
     }
 
     void bakeEnvironment(Texture *&environment) {
+#ifdef __AMIGA_MINIGL__
+        // This MiniGL backend has no off-screen render targets and reads
+        // pixels from the already presented RastPort.  A real environment
+        // bake would therefore capture an older frame (or require visibly
+        // presenting all six intermediate views).  Keep reflective special
+        // effects usable with a neutral sphere-map fallback instead.
+        if (!environment) {
+            uint8 data[] = { 192, 192, 192, 255 };
+            environment = new Texture(1, 1, 1, FMT_RGBA,
+                                      OPT_SPHERE_MAP | OPT_NEAREST, data);
+        }
+        return;
+#endif
+
         Core::beginFrame();
 
         flags.invisible = true;
         if (!environment) {
+#ifdef FFP
+            uint32 opt;
+            if (Core::support.texCUBE) {
+                opt = OPT_CUBEMAP | OPT_TARGET;
+            }
+            else {
+                opt = OPT_SPHERE_MAP | OPT_TARGET;
+            }
+#else
             uint32 opt = OPT_CUBEMAP | OPT_TARGET;
+#endif
+
             #ifdef USE_CUBEMAP_MIPS
                 opt |= OPT_MIPMAPS;
             #endif

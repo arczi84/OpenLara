@@ -297,6 +297,17 @@ struct Controller {
                 if (!controller) continue; // Block UpdateFloor issue while entities initialization
 
                 switch (e.type) {
+                    case TR::Entity::ELEVATOR : {
+                        float liftFloor = info.floor, liftCeiling = info.ceiling;
+                        controller->liftFloor(float(x), float(y), float(z), liftFloor, liftCeiling);
+                        if (liftFloor != info.floor) {
+                            info.floor  = liftFloor;
+                            info.slantX = info.slantZ = 0;
+                            info.lava   = false;
+                        }
+                        info.ceiling = liftCeiling;
+                        break;
+                    }
                     case TR::Entity::TRAP_DOOR_1 :
                     case TR::Entity::TRAP_DOOR_2 : {
                         if (!controller->isCollider()) continue;
@@ -582,7 +593,6 @@ struct Controller {
 
     virtual void setSaveData(const SaveEntity &data) {
         const TR::Entity &e = getEntity();
-        const TR::Model  *m = getModel();
         if (entity < level->entitiesBaseCount) {
             pos.x       = float(e.x ^ data.x);
             pos.y       = float(e.y ^ data.y);
@@ -599,7 +609,13 @@ struct Controller {
         }
         flags.value = e.flags.value ^ data.flags;
         timer       = data.timer == -1 ? -1.0f : (data.timer / 30.0f);
-    // animation
+    // animation: pick the model in the saved room, a crocodile has a land
+    // and a water model and the saved animation belongs to one of them
+        vec3  p = pos;
+        int16 r = roomIndex;
+        const TR::Model *m = getModel();
+        pos       = p; // getModel() snaps a crocodile that changed model to the floor or the surface
+        roomIndex = r;
         if (m) animation.setAnim(data.animIndex, -data.animFrame);
         updateLights(false);
     }
@@ -1098,6 +1114,11 @@ struct Controller {
     }
 
     virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {}
+    virtual void springboard() {}
+    virtual bool carry(int entity) { return false; }
+    virtual bool canPullDagger() { return false; }
+    virtual void pullDagger() {}
+    virtual void liftFloor(float x, float y, float z, float &floor, float &ceiling) {}
     virtual void  doCustomCommand               (int curFrame, int prevFrame) {}
     virtual void  applyFlow(TR::Camera &sink)   {}
 
@@ -1157,8 +1178,13 @@ struct Controller {
                     case TR::ANIM_CMD_JUMP   : ptr += 2;   break;      
                     case TR::ANIM_CMD_EMPTY  : cmdEmpty(); break;
                     case TR::ANIM_CMD_KILL   : 
-                        if (animation.isEnded)
+                        if (animation.isEnded) {
                             deactivate();
+                            // stay on the last frame like TR does: looping back to frame 0
+                            // put a TR2 spider's body back where it was shot
+                            animation.goEnd(false);
+                            return;
+                        }
                         break;
                     case TR::ANIM_CMD_SOUND  :
                     case TR::ANIM_CMD_EFFECT : {
@@ -1176,9 +1202,12 @@ struct Controller {
                                 }
                             } else {
                                 if (!(level->version & TR::VER_TR1)) {
-                                    if ((sfx & 0x8000) && waterDepth <= 0.0f)
+                                    // waterDepth is only kept up to date for moving controllers; a static
+                                    // trap in a flooded room (Great Wall blades) kept 0 and lost its water sounds
+                                    bool wet = waterDepth > 0.0f || getRoom().flags.water;
+                                    if ((sfx & 0x8000) && !wet)
                                         break;
-                                    if ((sfx & 0x4000) && waterDepth > 0.0f)
+                                    if ((sfx & 0x4000) && wet)
                                         break;
                                 }
                                 game->playSound(fx, pos, Sound::PAN);

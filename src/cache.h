@@ -8,6 +8,10 @@
 
 #define NO_WATER_HEIGHT  1000000.0f
 
+#ifdef __AMIGA_OGLES2__
+extern bool ogles2ScreenTex; // platform/amiga_ogles2/main.cpp
+#endif
+
 #if defined(_OS_IOS) || defined(_GAPI_D3D9) || defined(_GAPI_D3D11) || defined(_GAPI_GXM)
     #define USE_SCREEN_TEX
 #endif
@@ -194,6 +198,9 @@ struct ShaderCache {
 
     void bind(Core::Pass pass, Shader::Type type, int fx) {
         Core::pass = pass;
+#ifdef FFP
+        Core::renderType = type;
+#endif
 
         Shader *shader = getShader(pass, type, fx);
         if (shader) {
@@ -431,6 +438,14 @@ struct WaterCache {
     #define WATER_TILE_SIZE    64
     #define DETAIL             (WATER_TILE_SIZE / 1024.0f)
     #define MAX_DROPS          32
+#if defined(__AMIGA_OGLES2__) && defined(OGLES2_LITE)
+    // PiStorm V3D: smaller water render targets
+    #define WATER_REFLECT_SIZE  256
+    #define WATER_CAUSTICS_SIZE 256
+#else
+    #define WATER_REFLECT_SIZE  512
+    #define WATER_CAUSTICS_SIZE 512
+#endif
 
     IGame     *game;
     TR::Level *level;
@@ -529,7 +544,7 @@ struct WaterCache {
             data[1] = new Texture(w * WATER_TILE_SIZE, h * WATER_TILE_SIZE, 1, FMT_RG_HALF, OPT_TARGET | OPT_VERTEX);
             delete[] mf;
 
-            caustics = Core::settings.detail.water > Core::Settings::MEDIUM ? new Texture(512, 512, 1, FMT_RGBA, OPT_TARGET | OPT_DEPEND) : NULL;
+            caustics = Core::settings.detail.water > Core::Settings::MEDIUM ? new Texture(WATER_CAUSTICS_SIZE, WATER_CAUSTICS_SIZE, 1, FMT_RGBA, OPT_TARGET | OPT_DEPEND) : NULL;
             
             blank = false;
         }
@@ -555,7 +570,7 @@ struct WaterCache {
     } drops[MAX_DROPS];
 
     WaterCache(IGame *game) : game(game), level(game->getLevel()), screen(NULL), refract(NULL), count(0), dropCount(0) {
-        reflect = new Texture(512, 512, 1, FMT_RGBA, OPT_TARGET);
+        reflect = new Texture(WATER_REFLECT_SIZE, WATER_REFLECT_SIZE, 1, FMT_RGBA, OPT_TARGET);
     }
 
     ~WaterCache() {
@@ -817,6 +832,20 @@ struct WaterCache {
             screen = new Texture(w, h, 1, FMT_RGBA, OPT_TARGET);
         #endif
         }
+    #ifdef __AMIGA_OGLES2__
+        // ogles2 copies from the window wrongly every other frame when its
+        // height is not a multiple of 8 (960x540: water and the fps counter
+        // flicker): the scene goes to a texture then, as with USE_SCREEN_TEX.
+        if (ogles2ScreenTex) {
+            if (!screen || w != screen->origWidth || h != screen->origHeight) {
+                delete screen;
+                screen = new Texture(w, h, 1, FMT_RGBA, OPT_TARGET);
+            }
+        } else if (screen) {
+            delete screen;
+            screen = NULL;
+        }
+    #endif
         return screen;
     }
 
@@ -1021,6 +1050,9 @@ struct WaterCache {
 
         Core::setDepthTest(false);
         Core::setBlendMode(bmNone);
+    #ifdef __AMIGA_OGLES2__
+        Core::setCullMode(cmNone); // the water passes leave front culling on
+    #endif
 
         game->getMesh()->renderBuffer(indices, COUNT(indices), vertices, COUNT(vertices));
 

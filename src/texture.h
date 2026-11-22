@@ -48,7 +48,21 @@ struct Texture : GAPI::Texture {
 
                 ASSERT(tilesCount < COUNT(this->tiles));
                 for (int i = 0; i < tilesCount; i++)
-                    this->tiles[i] = new Texture(tiles[i].width, tiles[i].height, 1, FMT_RGBA, OPT_NEAREST, tiles[i].data);
+                    this->tiles[i] = new Texture(tiles[i].width, tiles[i].height, 1, FMT_RGBA, /*OPT_NEAREST*/0, tiles[i].data);
+            }
+
+            void setFilterQuality(int value) {
+                for (int i = 0; i < COUNT(tiles); i++) {
+                    if (tiles[i]) {
+                        tiles[i]->setFilterQuality(value);
+                    }
+                }
+
+                if (this->opt & OPT_PROXY) {
+                    return;
+                }
+
+                GAPI::Texture::setFilterQuality(value);
             }
         #endif
 
@@ -63,7 +77,7 @@ struct Texture : GAPI::Texture {
         }
     #endif
 
-#if defined(_DEBUG) && defined(_OS_WIN) && defined(_GAPI_GL)
+#if ((defined(_DEBUG) && (defined(_OS_WIN) || defined(__MORPHOS__)) && defined(_GAPI_GL) ))
     void dump(const char *fileName) {
         bind(0);
         int size = width *height * 4;
@@ -215,10 +229,31 @@ struct Texture : GAPI::Texture {
         FILE *f = fopen(buf, "wb");
         if (f) {
             uint16 type = 'B' + ('M' << 8);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            type = swap16(type),
+
+            fhdr.bfSize = swap32(fhdr.bfSize);
+            fhdr.bfReserved1 = swap16(fhdr.bfReserved1);
+            fhdr.bfReserved2 = swap16(fhdr.bfReserved2);
+            fhdr.bfOffBits = swap32(fhdr.bfOffBits);
+
+            ihdr.biSize = swap32(ihdr.biSize);
+            ihdr.biWidth = swap32(ihdr.biWidth);
+            ihdr.biHeight = swap32(ihdr.biHeight);
+            ihdr.biPlanes = swap16(ihdr.biPlanes);
+            ihdr.biBitCount = swap16(ihdr.biBitCount);
+            ihdr.biCompression = swap32(ihdr.biCompression);
+            ihdr.biSizeImage = swap32(ihdr.biSizeImage);
+            ihdr.biXPelsPerMeter = swap32(ihdr.biXPelsPerMeter);
+            ihdr.biYPelsPerMeter = swap32(ihdr.biYPelsPerMeter);
+            ihdr.biClrUsed = swap32(ihdr.biClrUsed);
+            ihdr.biClrImportant = swap32(ihdr.biClrImportant);
+#endif
+            
             fwrite(&type, sizeof(type), 1, f);
             fwrite(&fhdr, sizeof(fhdr), 1, f);
             fwrite(&ihdr, sizeof(ihdr), 1, f);
-            fwrite(data, ihdr.biSizeImage, 1, f);
+            fwrite(data, (width* height * 4), 1, f);
             LOG("save %s\n", buf);
             fclose(f);
         } else
@@ -239,7 +274,17 @@ struct Texture : GAPI::Texture {
             uint8  other[48 + 64];
         } pcx;
 
-        stream.raw(&pcx, sizeof(PCX));
+        pcx.magic = stream.read();
+        pcx.version = stream.read();
+        pcx.compression = stream.read();
+        pcx.bpp = stream.read();
+        pcx.rect[0] = stream.readLE16();
+        pcx.rect[1] = stream.readLE16();
+        pcx.rect[2] = stream.readLE16();
+        pcx.rect[3] = stream.readLE16();
+        pcx.width = stream.readLE16();
+        pcx.height = stream.readLE16();
+        stream.seek(sizeof(pcx.other));
 
         ASSERT(pcx.bpp == 8);
         ASSERT(pcx.compression == 1);
@@ -289,15 +334,16 @@ struct Texture : GAPI::Texture {
     }
 
     static uint8* LoadBMP(Stream &stream, uint32 &width, uint32 &height) {
+
         int32  offset, size;
         uint16 bpp;
         stream.seek(10);
-        stream.read(offset);
+        offset = stream.readLE32();
         stream.seek(4);
-        stream.read(width);
-        stream.read(height);
+        width = stream.readLE32();
+        height = stream.readLE32();
         stream.seek(2);
-        stream.read(bpp);
+        bpp = stream.readLE16();
         stream.seek(8);
         stream.seek(offset - stream.pos);
 
@@ -403,11 +449,11 @@ struct Texture : GAPI::Texture {
     // read chunks
         while (stream.pos < stream.size) {
             uint32 chunkSize, chunkName;
-            chunkSize = swap32(stream.read(chunkSize));
-            stream.read(chunkName);
+            chunkSize = stream.readBE32();
+            chunkName = stream.readLE32();
             if (chunkName == FOURCC("IHDR")) { // Image Header
-                width  = swap32(stream.read(width));
-                height = swap32(stream.read(height));
+                width  = stream.readBE32();
+                height = stream.readBE32();
                 stream.read(bits);
                 stream.read(colorType);
                 stream.seek(2);
@@ -538,27 +584,27 @@ struct Texture : GAPI::Texture {
 
     static void rncGetOffset(BitStream &bs, uint16 &offset) {
         offset = 0;
-        if (bs.readBitBE()) {
-            offset = bs.readBitBE();
+        if (bs.readBit()) {
+            offset = bs.readBit();
 
-            if (bs.readBitBE()) {
-                offset = ((offset << 1) | bs.readBitBE()) | 4;
+            if (bs.readBit()) {
+                offset = ((offset << 1) | bs.readBit()) | 4;
 
-                if (!bs.readBitBE())
-                    offset = (offset << 1) | bs.readBitBE();
+                if (!bs.readBit())
+                    offset = (offset << 1) | bs.readBit();
             } else if (!offset)
-                offset = bs.readBitBE() + 2;
+                offset = bs.readBit() + 2;
         }
         offset = ((offset << 8) | bs.readByte()) + 1;
     }
 
     static uint8* LoadRNC(Stream &stream, uint32 &width, uint32 &height) { // https://github.com/lab313ru/rnc_propack_source
         uint32 magic, size, csize;
-        stream.read(magic);
+        magic = stream.readLE32();
 
         if (magic == FOURCC("RNC\002")) {
-            size  = swap32(stream.read(size));
-            csize = swap32(stream.read(csize));
+            size  = stream.readBE32();
+            csize = stream.readBE32();
             stream.seek(6);
         } else {
             stream.seek(-4);
@@ -571,24 +617,24 @@ struct Texture : GAPI::Texture {
 
         stream.raw(cdata, csize);
 
-        BitStream bs(cdata, csize);
+        BitStream bs(cdata, csize, false); // big endian
         uint8 *dst = data;
         uint8 *end = data + size;
 
         uint32 length = 0;
         uint16 offset = 0;
 
-        bs.readBE(2);
+        bs.readBits(2);
         while (bs.data < bs.end && dst < end) {
-            if (!bs.readBitBE()) {
+            if (!bs.readBit()) {
                 *dst++ = bs.readByte();
             } else {
-                if (bs.readBitBE()) {
-                    if (bs.readBitBE()) {
-                        if (bs.readBitBE()) {
+                if (bs.readBit()) {
+                    if (bs.readBit()) {
+                        if (bs.readBit()) {
                             length = bs.readByte() + 8;
                             if (length == 8) {
-                                bs.readBitBE();
+                                bs.readBit();
                                 continue;
                             }
                         } else
@@ -605,9 +651,9 @@ struct Texture : GAPI::Texture {
                         dst++;
                     }
                 } else {
-                    length = bs.readBitBE() + 4;
-                    if (bs.readBitBE())
-                        length = ((length - 1) << 1) + bs.readBitBE();
+                    length = bs.readBit() + 4;
+                    if (bs.readBit())
+                        length = ((length - 1) << 1) + bs.readBit();
 
                     if (length != 9) {
                         rncGetOffset(bs, offset);
@@ -617,7 +663,7 @@ struct Texture : GAPI::Texture {
                             dst++;
                         }
                     } else {
-                        length = (bs.readBE(4) << 2) + 12;
+                        length = (bs.readBits(4) << 2) + 12;
                         while (length--)
                             *dst++ = bs.readByte();
                     }
@@ -629,18 +675,29 @@ struct Texture : GAPI::Texture {
         height = 256;
         width  = uint32(dst - data) / height / 2;
 
-        uint32 *data32 = new uint32[width * height];
+        Color32* data32 = new Color32[width * height];
         {
-            uint32 *dst = data32;
+            Color32* dst = data32;
             uint16 *src = (uint16*)data;
             uint16 *end = src + width * height;
-
             while (src < end) {
-                uint16 c = *src++;
-                *dst++ = ((c & 0x001F) << 3) | ((c & 0x03E0) << 6) | (((c & 0x7C00) << 9)) | 0xFF000000;
+                Color16 c(*src++);
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+                c.value = swap16(c.value);
+                dst->r = c.b() << 3;
+                dst->g = c.g() << 3;
+                dst->b = c.r() << 3;
+                dst->a = 255;
+#else
+                dst->r = c.b() << 3;
+                dst->g = c.g() << 3;
+                dst->b = c.r() << 3;
+                dst->a = 255;
+#endif
+                dst++;
             }
         }
-        
+
         delete[] data;
 
         return (uint8*)data32;
@@ -674,7 +731,7 @@ struct Texture : GAPI::Texture {
 
     static uint8* LoadDATA(Stream &stream, uint32 &width, uint32 &height) {
         uint32 magic;
-        stream.read(magic);
+        magic = stream.readLE32();
         stream.seek(-4);
 
         #ifdef USE_INFLATE
@@ -709,7 +766,11 @@ struct Texture : GAPI::Texture {
 
             for (uint32 j = 0; j < dh; j++)
                 for (uint32 i = 0; i < dw; i++)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+                    *dst++ = (i < width && j < height) ? *src++ : 0x000000FF;
+#else
                     *dst++ = (i < width && j < height) ? *src++ : 0xFF000000;
+#endif
 
             delete[] data;
             data = (uint8*)dataPOT;
@@ -717,7 +778,11 @@ struct Texture : GAPI::Texture {
 
         if (border) {
             for (uint32 y = 0; y < height; y++)
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+                ((uint32*)data)[y * dw] = ((uint32*)data)[y * dw + dw - 1] = 0x000000FF;
+#else
                 ((uint32*)data)[y * dw] = ((uint32*)data)[y * dw + dw - 1] = 0xFF000000;
+#endif
         }
 
         Texture *tex = new Texture(dw, dh, 1, FMT_RGBA, 0, data);

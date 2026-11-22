@@ -40,6 +40,8 @@ const char *STR_PT[] = { ""
     , "Pressione Qualquer Tecla"
     , "%s - Selecionar"
     , "%s - Voltar"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "OP|C+OES"
     , "INVENT)ARIO"
@@ -70,7 +72,9 @@ const char *STR_PT[] = { ""
     , "Ilumina|c+ao"
     , "Sombras"
     , ")Agua"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Est)ereo"
     , "Itens Simples"
     , "Resolution"
@@ -350,6 +354,12 @@ const char *STR_PT[] = { ""
     , "Cidade Perdida De Tinnos"
     , "Caverna do Meteorito"
     , "Todos os Santos"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

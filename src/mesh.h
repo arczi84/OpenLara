@@ -448,8 +448,13 @@ struct MeshBuilder {
             }
         }
 
+    #ifndef FFP
+        // welding gives a joint mesh vertices that belong to another joint (the
+        // index is in coord.w); the shader skins them, but FFP draws each joint's
+        // part with one matrix, which tore up the TR2 braid and Lara's joints
         weldSkinJoints(vertices + vStartModel, level->extra.laraSkin, level->extra.laraJoints);
         weldSkinJoints(vertices + vStartModel, level->extra.braid,    level->extra.braid);
+    #endif
 
         //ASSERT(vCount - vStartModel <= 0xFFFF);
 
@@ -464,7 +469,11 @@ struct MeshBuilder {
             Vertex &v0 = vertices[vCount + i * 2 + 0];
             v0.normal    = short4( 0, -1, 0, 1 );
             v0.texCoord  = short4( whiteObject.texCoordAtlas[0].x, whiteObject.texCoordAtlas[0].y, 32767, 32767 );
-            v0.color     = v0.light = ubyte4( 0, 0, 0, 0 );
+#ifdef FFP
+            v0.color     = v0.light = ubyte4 (180, 180, 180, 0);
+#else
+            v0.color     = v0.light = ubyte4(0, 0, 0, 0);
+#endif
 
             if (i == 8) {
                 v0.coord = short4( 0, 0, 0, 0 );
@@ -1283,7 +1292,7 @@ struct MeshBuilder {
             y0 = y1 = y;
         }
 
-    #ifndef MERGE_SPRITES
+#if !defined(MERGE_SPRITES) && defined(FFP)
         if (!expand) {
             vec3 pos = vec3(float(x), float(y), float(z));
             quad[0].coord = coordTransform(pos, vec3( float(sprite.l), float(-sprite.t), 1 ));
@@ -1291,7 +1300,7 @@ struct MeshBuilder {
             quad[2].coord = coordTransform(pos, vec3( float(sprite.r), float(-sprite.b), 1 ));
             quad[3].coord = coordTransform(pos, vec3( float(sprite.l), float(-sprite.b), 1 ));
         } else
-    #endif
+ #endif
         {
             quad[0].coord = short4( x0, y0, z, 1 );
             quad[1].coord = short4( x1, y0, z, 1 );
@@ -1315,6 +1324,20 @@ struct MeshBuilder {
 
     void addDynBar(const TR::TextureInfo &tile, const vec2 &pos, const vec2 &size, uint32 color, uint32 color2 = 0) {
         dynCheck(1 * 6);
+
+#ifdef SPLIT_BY_TILE
+        if (tile.tile != curTile
+#ifdef SPLIT_BY_CLUT
+            || tile.clut != curClut
+#endif
+            ) {
+            dynEnd();
+            dynBegin();
+            curTile = tile.tile;
+            curClut = tile.clut;
+            atlas->bindTile(curTile, curClut);
+        }
+#endif
 
         Index *indices   = dynIndices;
         Vertex *vertices = dynVertices;
@@ -1341,6 +1364,10 @@ struct MeshBuilder {
             else
                 v.light.value = color;
 
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            v.light.value = swap32(v.light.value);
+#endif
+
             short2 uv = tile.texCoordAtlas[i];
 
             v.texCoord = short4( uv.x, uv.y, 32767, 32767 );
@@ -1351,6 +1378,20 @@ struct MeshBuilder {
 
     void addDynFrame(const vec2 &pos, const vec2 &size, uint32 color1, uint32 color2) {
         dynCheck(4 * 6);
+
+#ifdef SPLIT_BY_TILE
+        if (whiteSprite.tile != curTile
+#ifdef SPLIT_BY_CLUT
+            || whiteSprite.clut != curClut
+#endif
+            ) {
+            dynEnd();
+            dynBegin();
+            curTile = whiteSprite.tile;
+            curClut = whiteSprite.clut;
+            atlas->bindTile(curTile, curClut);
+        }
+#endif
 
         Index *indices   = dynIndices;
         Vertex *vertices = dynVertices;
@@ -1379,6 +1420,9 @@ struct MeshBuilder {
             Vertex &v = vertices[vCount + i];
             v.normal      = short4( 0, 0, 0, 0 );
             v.light.value = color1;
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            v.light.value = swap32(v.light.value);
+#endif
             v.texCoord    = uv;
         }
 
@@ -1399,6 +1443,9 @@ struct MeshBuilder {
             Vertex &v = vertices[vCount + i];
             v.normal      = short4( 0, 0, 0, 0 );
             v.light.value = color2;
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            v.light.value = swap32(v.light.value);
+#endif
             v.texCoord    = uv;
         }
 

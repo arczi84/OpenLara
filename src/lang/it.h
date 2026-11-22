@@ -40,6 +40,8 @@ const char *STR_IT[] = { ""
     , "Premi un tasto qualsiasi"
     , "%s - Seleziona"
     , "%s - Indietro"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "OPZIONI"
     , "INVENTARIO"
@@ -70,7 +72,9 @@ const char *STR_IT[] = { ""
     , "Illuminazione"
     , "Ombre"
     , "Acqua"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereo"
     , "Oggetti semplificati"
     , "Risoluzione"
@@ -350,6 +354,12 @@ const char *STR_IT[] = { ""
     , "Citt$a perduta di Tinnos"
     , "Caverna del meteorite"
     , "Hallows"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

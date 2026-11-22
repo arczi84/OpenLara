@@ -51,6 +51,8 @@ enum StringID {
     , STR_PRESS_ANY_KEY
     , STR_HELP_SELECT
     , STR_HELP_BACK
+    , STR_DISPLAYMODE_WINDOWED
+    , STR_DISPLAYMODE_FULLSCREEN
 // inventory pages
     , STR_OPTION
     , STR_INVENTORY
@@ -81,10 +83,16 @@ enum StringID {
     , STR_OPT_DETAIL_LIGHTING
     , STR_OPT_DETAIL_SHADOWS
     , STR_OPT_DETAIL_WATER
+    , STR_OPT_FOG
     , STR_OPT_DETAIL_VSYNC
+    , STR_OPT_MODE
     , STR_OPT_DETAIL_STEREO
     , STR_OPT_SIMPLE_ITEMS
+#ifdef AMIGA_PORT
     , STR_OPT_RESOLUTION
+#else
+    , STR_OPT_SCALE
+#endif
     , STR_SCALE_100
     , STR_SCALE_75
     , STR_SCALE_50
@@ -251,6 +259,14 @@ enum StringID {
     , STR_TR3_CHAMBER
     , STR_TR3_STPAUL
 
+#ifdef __AMIGA_OGLES2__
+    , STR_OPT_MSAA
+#endif
+
+#ifdef __AMIGA_OGLES2__
+    , STR_OPT_SHOW_FPS
+#endif
+
     , STR_MAX
 };
 
@@ -291,25 +307,31 @@ enum StringID {
 
 #define STR_SCALE "25", "50", "75", "100"
 
-const char *helpText = 
-    "Start - add second player or restore Lara@"
-    "H - Show or hide this help@"
-    "ALT and ENTER - Fullscreen@"
-    "5 - Save Game@"
-    "9 - Load Game@"
-    "C - Look@"
-    "R - Slow motion@"
-    "T - Fast motion@"
-    "Roll - Up & Down@"
-    "Step Left - Walk & Left@"
-    "Step Right - Walk & Right@"
-    "Out of water - Up & Action@"
-    "Handstand - Up & Walk@"
-    "Swan dive - Up & Walk & Jump@"
-    "First Person View - Look & Action@"
-    "DOZY on - Look & Duck & Action & Jump@"
-    "DOZY off - Walk@"
-    "Free Camera - hold L & R stick";
+const char* helpText =
+"Start - add second player or restore Lara@"
+"H - Show or hide this help@"
+"ALT and ENTER - Fullscreen@"
+"5 - Save Game@"
+"9 - Load Game@"
+"C - Look@"
+"R - Slow motion@"
+"T - Fast motion@"
+"Roll - Up & Down@"
+"Step Left - Walk & Left@"
+"Step Right - Walk & Right@"
+"Out of water - Up & Action@"
+"Handstand - Up & Walk@"
+"Swan dive - Up & Walk & Jump@"
+"First Person View - Look & Action@"
+"DOZY on - Look & Duck & Action & Jump@"
+"DOZY off - Walk@"
+"Free Camera - hold L & R stick@"
+#ifdef __MORPHOS__
+"@"
+"Enhanced MorphOS SDL3 version by BeWorld/BSzili - 2025";
+#else
+"";
+#endif
 
 #include "lang/en.h"
 #include "lang/fr.h"

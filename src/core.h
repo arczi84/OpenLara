@@ -6,7 +6,9 @@
 #endif
 
 #include <stdio.h>
+#ifndef __amigaos4__
 #include <memory.h>
+#endif
 
 #define OS_FILEIO_CACHE
 #define OS_PTHREAD_MT
@@ -36,11 +38,11 @@
 #elif WIN32
     #define _OS_WIN      1
     #define _GAPI_GL     1
+    //#define FFP 1
     //#define _GAPI_D3D9   1
     //#define _GAPI_D3D11  1
     //#define _GAPI_VULKAN 1
-    //#define _GAPI_SW     1
-
+     //#define _GAPI_SW     1
     //#define _NAPI_SOCKET
 
     #include <windows.h>
@@ -62,14 +64,64 @@
     #define VR_SUPPORT
     #define INV_QUALITY
     #define INV_STEREO
+#elif __AMIGA_OGLES2__
+    // AmigaOS 3 / PiStorm: the shader renderer on OpenGL ES 2.0 through
+    // ogles2.library (V3D GPU), SDL2_68k for the window and input.
+    #define _OS_AMIGA   1
+    #define AMIGA_PORT  1
+    #define _GAPI_GL    1
+    #define _GAPI_GLES  1
+    #define _GAPI_GLES2 1
+
+    #define DYNGEOM_NO_VBO
+    #define INV_QUALITY
+    #define INV_SINGLE_PLAYER
+
+    #undef OS_PTHREAD_MT
+#elif __AMIGA_MINIGL__
+    #define _OS_AMIGA   1
+    #define AMIGA_PORT  1
+    #define _GAPI_GL    1
+    #define FFP         1
+
+    #define INV_SINGLE_PLAYER
+
+    // The AmigaOS 3 port uses SDL 1.2 and MiniGL's fixed-function API.
+    // Keep all geometry in host memory and avoid features MiniGL does not
+    // expose (VBOs, render targets, cubemap mip generation and pthreads).
+    #define DYNGEOM_NO_VBO
+    #undef USE_CUBEMAP_MIPS
+    #undef OS_PTHREAD_MT
 #elif __SDL2__
+    //#define _GAPI_SW    1
     #define _GAPI_GL   1
+    #define FFP 1
     #ifdef SDL2_GLES
         #define _GAPI_GLES 1
         #define DYNGEOM_NO_VBO
     #endif
     #define INV_QUALITY
-    #define INV_STEREO
+    #define INV_VIBRATION
+    #define INV_SINGLE_PLAYER 
+    #ifdef __MORPHOS__
+        #undef USE_CUBEMAP_MIPS
+        #undef OS_PTHREAD_MT
+    #endif
+    #ifdef __amigaos4__
+        #undef OS_PTHREAD_MT
+    #endif
+#elif __SDL3__
+    //#define _GAPI_SW    1
+    #define _GAPI_GL   1
+    #define FFP 1
+    #define INV_QUALITY
+    #define INV_VIBRATION
+    #define INV_SINGLE_PLAYER
+    #ifdef __MORPHOS__
+        #undef USE_CUBEMAP_MIPS
+        #undef OS_PTHREAD_MT
+    #endif
+    
 #elif __RPI__
     #define _OS_RPI    1
     #define _GAPI_GL   1
@@ -231,7 +283,9 @@
 #endif
 
 #ifdef FFP
-    #define SPLIT_BY_TILE
+    #if !defined(_GAPI_GL)
+        #define SPLIT_BY_TILE
+    #endif
     #if defined(_GAPI_GU)
         #define SPLIT_BY_CLUT
     #endif
@@ -254,6 +308,9 @@
     #define SHADOW_TEX_SIZE      256
 #elif defined(_OS_PSV)
     #define SHADOW_TEX_SIZE      1024
+#elif defined(__AMIGA_OGLES2__) && defined(OGLES2_LITE)
+    // PiStorm V3D: the 2048 map cost ~20 fps at 1080p
+    #define SHADOW_TEX_SIZE      1024
 #else
     #define SHADOW_TEX_SIZE      2048
 #endif
@@ -267,6 +324,10 @@ extern int   osGetTimeMS     ();
 
 extern bool  osJoyReady      (int index);
 extern void  osJoyVibrate    (int index, float L, float R);
+
+#if defined(__SDL2__) || defined(__SDL3__) || defined(_OS_WIN)
+extern void  osToggleFullscreen(bool enable);
+#endif
 
 #define OS_LOCK(mutex) Core::Lock _lock(mutex)
 
@@ -358,16 +419,57 @@ namespace Core {
         bool profMarker;
         bool profTiming;
     #endif
+#ifdef FFP
+        bool texCUBE;
+#endif
     } support;
 
-#define SETTINGS_VERSION 7
+#ifdef __AMIGA_OGLES2__
+    // Own version and file: the MiniGL port's saved LOW details must not
+    // switch the shader effects off.
+    // 11: resolution IDs sorted by size (9: the old order)
+    #define SETTINGS_VERSION 11
+    #define SETTINGS_VERSION_UNSORTED_RES 9
+#elif defined(__AMIGA_MINIGL__)
+    #define SETTINGS_VERSION 8
+#else
+    #define SETTINGS_VERSION 7
+#endif
 #define SETTINGS_READING 0xFF
+
+#ifdef __AMIGA_OGLES2__
+    #define SETTINGS_FILE "settings-ogles2"
+#else
+    #define SETTINGS_FILE "settings"
+#endif
 
     struct Settings {
         enum Quality  { LOW, MEDIUM, HIGH };
         enum Stereo   { STEREO_OFF, STEREO_SBS, STEREO_ANAGLYPH, STEREO_SPLIT, STEREO_VR };
         enum Scale    { SCALE_25, SCALE_50, SCALE_75, SCALE_100 };
-
+        enum DisplayMode { DM_WINDOWED, DM_FULLSCREEN };
+#ifdef AMIGA_PORT
+        // Saved IDs: append modes so existing settings keep their resolution.
+        enum AmigaResolution {
+            AMIGA_RES_320_240,
+            AMIGA_RES_512_384,
+            AMIGA_RES_640_480,
+            AMIGA_RES_800_600,
+            AMIGA_RES_960_540,
+            AMIGA_RES_1024_576,
+            AMIGA_RES_1024_768,
+            AMIGA_RES_1280_720,
+            AMIGA_RES_1280_800,
+            AMIGA_RES_1280_960,
+            AMIGA_RES_1280_1024,
+            AMIGA_RES_1366_768,
+            AMIGA_RES_1440_900,
+            AMIGA_RES_1600_900,
+            AMIGA_RES_1680_1050,
+            AMIGA_RES_1920_1080,
+            AMIGA_RES_MAX
+        };
+#endif
         uint8 version;
 
         struct {
@@ -384,6 +486,8 @@ namespace Core {
             uint8 scale;
             uint8 vsync;
             uint8 stereo;
+            uint8 fog;
+            uint8 displaymode;
             void setFilter(Quality value) {
                 if (value > MEDIUM && !(support.maxAniso > 1))
                     value = MEDIUM;
@@ -442,6 +546,16 @@ namespace Core {
         // temporary, used only for setting controls
         uint8 playerIndex;
         uint8 ctrlIndex;
+#ifdef AMIGA_PORT
+        uint8 resolution;
+#endif
+#ifdef __AMIGA_OGLES2__
+        // 0 off, 1 4x (ogles2.library has 4x only); new contexts only
+        uint8 msaa;
+#endif
+#ifdef __AMIGA_OGLES2__
+        uint8 showFPS; // Options > Detail > Show FPS
+#endif
     } settings;
 
     bool resetState;
@@ -560,6 +674,7 @@ enum TexOption {
     OPT_DEPEND      = 0x0100,
     OPT_PROXY       = 0x0200,
     OPT_VRAM_3DS    = 0x0400,
+    OPT_SPHERE_MAP  = 0x0800,
 };
 
 // Pipeline State Object
@@ -719,6 +834,9 @@ namespace Core {
     GAPI::Texture *defaultTarget;
     
     int32   renderState;
+#ifdef FFP
+    int32   renderType;
+#endif
 
     struct Active {
         const PSO     *pso;
@@ -772,8 +890,8 @@ namespace Core {
 
         void stop() {
             if (fpsTime < Core::getTime()) {
-                LOG("FPS: %d DIP: %d TRI: %d RT: %d\n", fps, dips, tris, rt);
             #ifdef PROFILE
+                LOG("FPS: %d DIP: %d TRI: %d RT: %d\n", fps, dips, tris, rt);
                 LOG("frame time: %d mcs\n", tFrame / 1000);
                 LOG("sound: mix %d rev %d ren %d/%d ogg %d\n", Sound::stats.mixer, Sound::stats.reverb, Sound::stats.render[0], Sound::stats.render[1], Sound::stats.ogg);
                 LOG("video: %d\n", video);
@@ -885,6 +1003,9 @@ namespace Core {
 
         LOG("cache    : %s\n", cacheDir);
         LOG("supports :\n");
+#ifdef FFP
+        LOG("  CubeMap support: %s\n", support.texCUBE 		 ? "true" : "false");
+#endif
         LOG("  variyngs count : %d\n", support.maxVectors);
         LOG("  binary shaders : %s\n", support.shaderBinary  ? "true" : "false");
         LOG("  vertex arrays  : %s\n", support.VAO           ? "true" : "false");
@@ -965,6 +1086,21 @@ namespace Core {
         settings.audio.reverb        = true;
         settings.audio.subtitles     = true;
         settings.audio.language      = defLang;
+        settings.detail.fog          = true;
+        settings.detail.displaymode  = Settings::DisplayMode::DM_WINDOWED;
+#ifdef AMIGA_PORT
+        settings.resolution          = Settings::AMIGA_RES_640_480;
+#endif
+#ifdef __AMIGA_OGLES2__
+        settings.showFPS             = 1;
+#endif
+#ifdef __AMIGA_OGLES2__
+        settings.msaa                = 0;
+        // the PiStorm's V3D: shadow maps and water reflections cost most
+        settings.detail.setShadows  (Core::Settings::LOW);
+        settings.detail.setWater    (Core::Settings::LOW);
+        settings.detail.vsync        = false; // VSync halves 51 fps to 30 on the PiStorm
+#endif
 
     // player 1
         {
@@ -1111,6 +1247,18 @@ namespace Core {
 
     void setVSync(bool enable) {
         GAPI::setVSync((Core::settings.detail.vsync = enable));
+    }
+
+    void setChangeDisplayMode() {
+
+        GAPI::setFullscreen(Core::settings.detail.displaymode == Settings::DisplayMode::DM_FULLSCREEN);
+
+    }
+
+
+    void setFog(bool enable) {
+        Core::settings.detail.fog = enable;
+        GAPI::withFOG = enable;
     }
 
     void waitVBlank() {

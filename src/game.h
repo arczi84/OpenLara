@@ -95,14 +95,79 @@ void loadLevelAsync(Stream *stream, void *userData) {
     Game::nextLevel = stream;
 }
 
+#ifdef __AMIGA_OGLES2__
+// Resolution IDs of settings version SETTINGS_VERSION_UNSORTED_RES
+uint8 amigaResFromUnsorted(uint8 id) {
+    static const uint8 ids[Core::Settings::AMIGA_RES_MAX] = { 0, 1, 2, 3, 6, 9, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15 };
+    return id < Core::Settings::AMIGA_RES_MAX ? ids[id] : uint8(Core::Settings::AMIGA_RES_640_480);
+}
+#endif
+
 void loadSettings(Stream *stream, void *userData) {
     if (stream) {
         uint8 version;
         stream->read(version);
         if (version == SETTINGS_VERSION && stream->size == sizeof(Core::Settings))
             stream->raw((char*)&Core::settings + 1, stream->size - 1); // read settings data right after version number
+#ifdef AMIGA_PORT
+        else if (version == 7 && stream->size == OFFSETOF(Core::Settings, resolution)) {
+            // Version 7 ended immediately before the new resolution byte.
+            // Import its complete prefix so audio and controls are retained.
+            stream->raw((char*)&Core::settings + 1, stream->size - 1);
+            Core::settings.resolution = Core::Settings::AMIGA_RES_640_480;
+        }
+#endif
+#ifdef __AMIGA_OGLES2__
+        else if (version == SETTINGS_VERSION && stream->size == OFFSETOF(Core::Settings, msaa)) {
+            // Written before the MSAA byte: keep everything, MSAA off.
+            stream->raw((char*)&Core::settings + 1, stream->size - 1);
+            Core::settings.msaa = 0;
+        }
+#endif
+#ifdef __AMIGA_OGLES2__
+        else if (version == SETTINGS_VERSION && stream->size == OFFSETOF(Core::Settings, showFPS)) {
+            // Written before the Show FPS byte: keep everything, counter on.
+            stream->raw((char*)&Core::settings + 1, stream->size - 1);
+            Core::settings.showFPS = 1;
+        }
+#endif
+#ifdef __AMIGA_OGLES2__
+        else if (version == SETTINGS_VERSION_UNSORTED_RES && (stream->size == sizeof(Core::Settings) || stream->size == OFFSETOF(Core::Settings, showFPS) || stream->size == OFFSETOF(Core::Settings, msaa))) {
+            // Before the resolution list was sorted: same data, old IDs.
+            stream->raw((char*)&Core::settings + 1, stream->size - 1);
+            if (stream->size <= OFFSETOF(Core::Settings, msaa))
+                Core::settings.msaa = 0;
+            if (stream->size <= OFFSETOF(Core::Settings, showFPS))
+                Core::settings.showFPS = 1;
+            Core::settings.resolution = amigaResFromUnsorted(Core::settings.resolution);
+        }
+#endif
         delete stream;
     }
+#ifdef __AMIGA_OGLES2__
+    if (Core::settings.showFPS > 1)
+        Core::settings.showFPS = 1;
+#endif
+
+#ifdef __AMIGA_MINIGL__
+    // MiniGL has no off-screen render targets.  Keep OpenLara's internal
+    // scaling path disabled even when importing a settings file written by
+    // the short-lived build that reused this byte for window resolution.
+    Core::settings.detail.scale = Core::Settings::SCALE_100;
+    if (Core::settings.detail.displaymode > Core::Settings::DM_FULLSCREEN)
+        Core::settings.detail.displaymode = Core::Settings::DM_WINDOWED;
+    if (Core::settings.resolution >= Core::Settings::AMIGA_RES_MAX)
+        Core::settings.resolution = Core::Settings::AMIGA_RES_640_480;
+#endif
+
+#ifdef __AMIGA_OGLES2__
+    if (Core::settings.detail.displaymode > Core::Settings::DM_FULLSCREEN)
+        Core::settings.detail.displaymode = Core::Settings::DM_WINDOWED;
+    if (Core::settings.resolution >= Core::Settings::AMIGA_RES_MAX)
+        Core::settings.resolution = Core::Settings::AMIGA_RES_640_480;
+    if (Core::settings.msaa > 1)
+        Core::settings.msaa = 0;
+#endif
 
     if (Core::settings.detail.stereo == Core::Settings::STEREO_VR) {
         osToggleVR(true);
@@ -110,6 +175,8 @@ void loadSettings(Stream *stream, void *userData) {
 
     Core::settings.version = SETTINGS_VERSION;
     Core::setVSync(Core::settings.detail.vsync != 0);
+    GAPI::withFOG = Core::settings.detail.fog;
+    Core::setChangeDisplayMode();
 
     #if defined(_GAPI_SW) || defined(_GAPI_GU)
         Core::settings.detail.filter   = Core::Settings::LOW;
@@ -170,7 +237,7 @@ namespace Game {
         }
 
         Core::settings.version = SETTINGS_READING;
-        Stream::cacheRead("settings", loadSettings, lvl);
+        Stream::cacheRead(SETTINGS_FILE, loadSettings, lvl);
         readSlots();
     }
 

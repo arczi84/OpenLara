@@ -385,6 +385,9 @@ struct Level : IGame {
         bool rebuildWater   = settings.detail.water    != Core::settings.detail.water;
         bool switchModels   = settings.detail.simple   != Core::settings.detail.simple;
 
+        bool withFOG = settings.detail.fog;
+        Core::setFog(withFOG);
+
         bool rebuildShaders = rebuildWater || rebuildAmbient || rebuildShadows;
 
         bool redraw = memcmp(&settings.detail, &Core::settings.detail, sizeof(settings.detail)) != 0;
@@ -398,8 +401,9 @@ struct Level : IGame {
         }
 
         Core::setVSync(Core::settings.detail.vsync != 0);
+        Core::setChangeDisplayMode();
 
-        Stream::cacheWrite("settings", (char*)&settings, sizeof(settings));
+        Stream::cacheWrite(SETTINGS_FILE, (char*)&settings, sizeof(settings));
 
         if (rebuildShaders) {
         #if !defined(_GAPI_D3D8) && !defined(_GAPI_D3D9) && !defined(_GAPI_D3D11) && !defined(_GAPI_GXM)
@@ -415,7 +419,9 @@ struct Level : IGame {
 
         if (rebuildAmbient) {
             delete ambientCache;
+#ifndef FFP
             ambientCache = Core::settings.detail.lighting > Core::Settings::MEDIUM ? new AmbientCache(this) : NULL;
+#endif
         }
 
         if (rebuildShadows)
@@ -423,7 +429,9 @@ struct Level : IGame {
             
         if (rebuildWater) {
             delete waterCache;
+#ifndef FFP
             waterCache = Core::settings.detail.water > Core::Settings::LOW ? new WaterCache(this) : NULL;
+#endif
         }
 
         if (redraw && inventory->active && !level.isTitle())
@@ -615,7 +623,14 @@ struct Level : IGame {
     }
 
     virtual void renderEnvironment(int roomIndex, const vec3 &pos, Texture **targets, int stride = 0, Core::Pass pass = Core::passAmbient) {
-        #ifdef FFP
+
+        #ifdef __AMIGA_MINIGL__
+            // PiStorm3D MiniGL has no off-screen target; glReadPixels reads
+            // the last presented RastPort instead of this environment view.
+            return;
+        #endif
+
+        #if defined(FFP) && !defined(_GAPI_GL)
             return;
         #endif
 
@@ -640,6 +655,35 @@ struct Level : IGame {
         int16 rIndex = roomIndex;
         level.getSector(rIndex, pos); // fix room index for overlapped blocks
 
+#if defined(FFP) && defined(_GAPI_GL)
+		if (!Core::support.texCUBE) { 
+			// only for OPT_SPHERE_MAP
+	        setupCubeCamera(pos, 0);
+	        Core::pass = pass;
+	        Core::setTarget(targets[0], NULL, RT_CLEAR_COLOR | RT_CLEAR_DEPTH | RT_STORE_COLOR);
+	        renderView(rIndex, false, false);
+	        GAPI::Texture* target = Core::active.target;
+	        if (target) {
+	            uint32_t* src = new uint32_t[target->width * target->height];
+	            uint16_t* dst = new uint16_t[target->width * target->height];
+	
+	            glReadPixels(0, 0, target->width, target->height, GL_RGBA, GL_UNSIGNED_BYTE, src);
+	
+	            for (int i = 0; i < target->width * target->height; i++) {
+	                uint32 rgba = src[i];
+	                Color32 color(src[i]);
+	                dst[i] = ((color.r >> 3) << 11) | ((color.g >> 2) << 5) | (color.b >> 3);
+	            }
+	
+	            target->update(dst);
+	            //targets[0]->dump("texture");
+	
+	            delete[] src;
+	            delete[] dst;
+	        }
+		} else {
+#endif
+
     // render level into cube faces or texture images
         for (int i = 0; i < 6; i++) {
             setupCubeCamera(pos, i);
@@ -650,8 +694,38 @@ struct Level : IGame {
                 Core::setTarget(targets[i * stride], NULL, RT_CLEAR_COLOR | RT_CLEAR_DEPTH | RT_STORE_COLOR);
             }
             renderView(rIndex, false, false);
+#if defined(FFP) && defined(_GAPI_GL)
+		   if (Core::support.texCUBE) {
+	            GAPI::Texture* target = Core::active.target;
+	            if (target) {
+	                uint32_t* src = new uint32_t[target->width * target->height];
+	                uint16_t* dst = new uint16_t[target->width * target->height];
+	
+	                glReadPixels(0, 0, target->width, target->height, GL_RGBA, GL_UNSIGNED_BYTE, src);
+	
+	                for (int i = 0; i < target->width * target->height; i++) {
+	                    uint32 rgba = src[i];
+	                    Color32 color(src[i]);
+	                    dst[i] = ((color.r >> 3) << 11) | ((color.g >> 2) << 5) | (color.b >> 3);
+	                }
+	
+	                GAPI::FormatDesc desc = target->getFormat();
+	                if (targets[0]->opt & OPT_CUBEMAP) {
+	                    glTexSubImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, 0, 0, target->origWidth, target->origHeight, desc.fmt, desc.type, dst);
+	                }
+	                else {
+	                    // TODO
+	                }
+	
+	                delete[] src;
+	                delete[] dst;
+	            }
+            }
+#endif
         }
-
+#if defined(FFP) && defined(_GAPI_GL)
+		} // !Core::support.texCUBE
+#endif
         #ifdef _GAPI_D3D8
             GAPI::setFrontFace(true);
         #endif
@@ -768,6 +842,12 @@ struct Level : IGame {
             return NULL;
 
         TR::Entity &e = level.entities[index];
+        if (e.isSprite() && e.modelIndex >= 0) {
+        // no sprite sequence for it in this level (EXPLOSION in City of Khamoon):
+        // Sprite would index spriteSequences[-1] and corrupt the heap
+            return NULL;
+        }
+
         if (e.isPickup())
             e.intensity = 4096;
         else
@@ -873,6 +953,9 @@ struct Level : IGame {
         TrackRequest *req = (TrackRequest*)userData;
         Level *level = req->level;
         level->waitTrack = false;
+    #ifdef AMIGA_PORT
+        stream = Stream::toMemory(stream); // the HD light kept blinking while music played
+    #endif
         if (stream) {
             level->sndTrack = Sound::play(stream, NULL, 0.01f, 1.0f, req->flags);
             if (level->sndTrack) {
@@ -888,6 +971,9 @@ struct Level : IGame {
 
     static void playAsyncBG(Stream *stream, void *userData) {
         TrackRequest *req = (TrackRequest*)userData;
+    #ifdef AMIGA_PORT
+        stream = Stream::toMemory(stream);
+    #endif
         if (stream)
             Sound::play(stream, NULL, 1.0f, 1.0f, req->flags);
         delete req;
@@ -968,7 +1054,39 @@ struct Level : IGame {
 
         initTextures();
         mesh = new MeshBuilder(&level, atlasRooms);
+        // these models are other skins of an enemy and keep no animations of their own
+        if ((level.version & TR::VER_VERSION) == TR::VER_TR2) {
+            static const TR::Entity::Type skins[][2] = {
+                { TR::Entity::ENEMY_GOON_MASK_2, TR::Entity::ENEMY_GOON_MASK_1 },
+                { TR::Entity::ENEMY_GOON_MASK_3, TR::Entity::ENEMY_GOON_MASK_1 },
+                { TR::Entity::ENEMY_MERCENARY_3, TR::Entity::ENEMY_MERCENARY_2 },
+                { TR::Entity::ENEMY_GUARD_SPEAR_STATUE, TR::Entity::ENEMY_GUARD_SPEAR },
+                { TR::Entity::ENEMY_GUARD_SWORD_STATUE, TR::Entity::ENEMY_GUARD_SWORD },
+            };
+            for (int i = 0; i < COUNT(skins); i++) {
+                int a = level.getModelIndex(skins[i][0]);
+                int b = level.getModelIndex(skins[i][1]);
+                if (a > 0 && b > 0)
+                    level.models[a - 1].animation = level.models[b - 1].animation;
+            }
+        }
+
         initEntities();
+
+        // TR2 items that stand exactly on an enemy are carried by it
+        if ((level.version & TR::VER_VERSION) == TR::VER_TR2 && !level.isCutsceneLevel()) {
+            for (int i = 0; i < level.entitiesBaseCount; i++) {
+                TR::Entity &item = level.entities[i];
+                if (!item.controller || !item.isPickup())
+                    continue;
+                for (int j = 0; j < level.entitiesBaseCount; j++) {
+                    TR::Entity &e = level.entities[j];
+                    if (e.controller && e.isEnemy() && e.room == item.room && e.x == item.x && e.z == item.z &&
+                        ((Controller*)e.controller)->carry(i))
+                        break;
+                }
+            }
+        }
 
         shadow[0] = shadow[1] = NULL;
         scaleTex     = NULL;
@@ -988,9 +1106,10 @@ struct Level : IGame {
             camera = player->camera;
 
             zoneCache    = new ZoneCache(this);
+#ifndef FFP
             ambientCache = Core::settings.detail.lighting > Core::Settings::MEDIUM ? new AmbientCache(this) : NULL;
             waterCache   = Core::settings.detail.water    > Core::Settings::LOW    ? new WaterCache(this)   : NULL;
-
+#endif
             if (ambientCache) { // at first calculate ambient cube for Lara
                 AmbientCache::Cube cube;
                 ambientCache->getAmbient(players[0]->getRoomIndex(), players[0]->pos, cube); // add to queue
@@ -1221,7 +1340,25 @@ struct Level : IGame {
             case TR::Entity::SWITCH                :
             case TR::Entity::SWITCH_WATER          :
             case TR::Entity::SWITCH_BUTTON         : 
-            case TR::Entity::SWITCH_BIG            : return new Switch(this, index);
+            case TR::Entity::SWITCH_BIG            :
+            case TR::Entity::WHEEL_KNOB            : return new Switch(this, index);
+            case TR::Entity::ZIPLINE_HANDLE        : return new ZiplineHandle(this, index);
+            case TR::Entity::ELEVATOR              : return new Lift(this, index);
+            case TR::Entity::JUMPPAD               : return new Jumppad(this, index);
+            case TR::Entity::TRAP_BLADE_WALL       :
+            case TR::Entity::TRAP_BLADE_STATUE     :
+            case TR::Entity::TRAP_SPINDLE          :
+            case TR::Entity::TRAP_SPIKES_WALL      :
+            case TR::Entity::TRAP_SPIKES_CEILING   :
+            case TR::Entity::TRAP_ICICLES          :
+            case TR::Entity::ROLLING_DRUMS         :
+            case TR::Entity::TRAP_SWING_BAG        :
+            case TR::Entity::TRAP_SWING_BOX        :
+            case TR::Entity::HOOK                  :
+            case TR::Entity::SAW                   :
+            case TR::Entity::PROPELLER_PLANE       :
+            case TR::Entity::PROPELLER_WATER       :
+            case TR::Entity::PROPELLER_AIR         : return new TrapTR2(this, index);
             case TR::Entity::PUZZLE_HOLE_1         :
             case TR::Entity::PUZZLE_HOLE_2         :
             case TR::Entity::PUZZLE_HOLE_3         :
@@ -1256,44 +1393,45 @@ struct Level : IGame {
             case TR::Entity::MUTANT_EGG_SMALL      :
             case TR::Entity::MUTANT_EGG_BIG        : return new MutantEgg(this, index);
 
-            case TR::Entity::ENEMY_DOG              : return new Dog(this, index);
-            case TR::Entity::ENEMY_TIGER            : return new Tiger(this, index);
+            case TR::Entity::ENEMY_DOG              :
+            case TR::Entity::ENEMY_RAT              :
             case TR::Entity::ENEMY_GOON_MASK_1      :
             case TR::Entity::ENEMY_GOON_MASK_2      :
             case TR::Entity::ENEMY_GOON_MASK_3      :
             case TR::Entity::ENEMY_GOON_KNIFE       :
             case TR::Entity::ENEMY_GOON_SHOTGUN     :
-            case TR::Entity::ENEMY_RAT              :
-            case TR::Entity::ENEMY_DRAGON_FRONT     :
-            case TR::Entity::ENEMY_DRAGON_BACK      :
-            case TR::Entity::ENEMY_SHARK            :
-            case TR::Entity::ENEMY_MORAY_1          :
-            case TR::Entity::ENEMY_MORAY_2          :
-            case TR::Entity::ENEMY_BARACUDA         :
-            case TR::Entity::ENEMY_DIVER            :
-            case TR::Entity::ENEMY_GUNMAN_1         :
-            case TR::Entity::ENEMY_GUNMAN_2         :
             case TR::Entity::ENEMY_GOON_STICK_1     :
             case TR::Entity::ENEMY_GOON_STICK_2     :
-            case TR::Entity::ENEMY_GOON_FLAME       :
-            case TR::Entity::UNUSED_23              :
-            case TR::Entity::ENEMY_SPIDER           :
-            case TR::Entity::ENEMY_SPIDER_GIANT     :
-            case TR::Entity::ENEMY_CROW             :
-            case TR::Entity::ENEMY_MARCO            :
-            case TR::Entity::ENEMY_GUARD_SPEAR        :
-            case TR::Entity::ENEMY_GUARD_SPEAR_STATUE :
-            case TR::Entity::ENEMY_GUARD_SWORD        :
-            case TR::Entity::ENEMY_GUARD_SWORD_STATUE :
-            case TR::Entity::ENEMY_YETI             :
-            case TR::Entity::ENEMY_BIRD_MONSTER     :
-            case TR::Entity::ENEMY_EAGLE            :
+            case TR::Entity::ENEMY_GUNMAN_1         :
+            case TR::Entity::ENEMY_GUNMAN_2         :
             case TR::Entity::ENEMY_MERCENARY_1      :
             case TR::Entity::ENEMY_MERCENARY_2      :
             case TR::Entity::ENEMY_MERCENARY_3      :
-            case TR::Entity::ENEMY_MERCENARY_SNOWMOBILE :
             case TR::Entity::ENEMY_MONK_1           :
-            case TR::Entity::ENEMY_MONK_2           : return new Enemy(this, index, 100, 10, 0.0f, 0.0f);
+            case TR::Entity::ENEMY_MONK_2           :
+            case TR::Entity::ENEMY_GOON_FLAME       :
+            case TR::Entity::ENEMY_SPIDER           :
+            case TR::Entity::ENEMY_SPIDER_GIANT     :
+            case TR::Entity::ENEMY_YETI             :
+            case TR::Entity::ENEMY_BIRD_MONSTER     :
+            case TR::Entity::ENEMY_GUARD_SPEAR      :
+            case TR::Entity::ENEMY_GUARD_SPEAR_STATUE :
+            case TR::Entity::ENEMY_GUARD_SWORD      :
+            case TR::Entity::ENEMY_GUARD_SWORD_STATUE : return new EnemyTR2(this, index);
+            case TR::Entity::ENEMY_TIGER            : return new Tiger(this, index);
+            case TR::Entity::ENEMY_DRAGON_FRONT     : return new Dragon(this, index);
+            case TR::Entity::DRAGON_EXPLSION_EMITTER : return new DragonSpawn(this, index);
+            case TR::Entity::ENEMY_MERCENARY_SNOWMOBILE : return new EnemyTR2(this, index);
+            case TR::Entity::ENEMY_DRAGON_BACK      : return new DragonBack(this, index);
+            case TR::Entity::ENEMY_SHARK            :
+            case TR::Entity::ENEMY_BARACUDA         :
+            case TR::Entity::ENEMY_DIVER            :
+            case TR::Entity::ENEMY_MORAY_1          :
+            case TR::Entity::ENEMY_MORAY_2          : return new EnemyTR2Swim(this, index);
+            case TR::Entity::ENEMY_CROW             :
+            case TR::Entity::ENEMY_EAGLE            : return new EnemyTR2Bird(this, index);
+            case TR::Entity::UNUSED_23              :
+            case TR::Entity::ENEMY_MONK_3           : return new Enemy(this, index, 100, 10, 0.0f, 0.0f);
             case TR::Entity::ENEMY_WINSTON          : return new Winston(this, index);
 
             case TR::Entity::CRYSTAL_PICKUP         : return new CrystalPickup(this, index);
@@ -1304,6 +1442,7 @@ struct Level : IGame {
 
             case TR::Entity::WINDOW_1               :
             case TR::Entity::WINDOW_2               : return new BreakableWindow(this, index);
+            case TR::Entity::VEHICLE_BOAT           : return new VehicleBoat(this, index);
 
             case TR::Entity::HELICOPTER_FLYING      : return new HelicopterFlying(this, index);
 
@@ -1446,7 +1585,15 @@ struct Level : IGame {
                         }
 
                         for (int i = 0; i < (mm.z + 1) * (mm.w + 1); i++) {
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+                            uint32 rgba = CommonTexData[id][i];
+                            Color32 color(rgba & 255, (rgba >> 8) & 255, (rgba >> 16) & 255, (rgba >> 24) & 255);
+                            src[i] = color.value;
+#else
                             src[i] = ((Color32*)&CommonTexData[id])[i];
+
+#endif
+
                         }
                         break;
                     default : return;
@@ -1745,6 +1892,7 @@ struct Level : IGame {
             atlasSprites =
             atlasGlyphs  = new Texture(level.tiles4, level.tilesCount, level.cluts, level.clutsCount);
         #else
+            level.tilesCount++; // reserve one tile for the common textures
             Texture::Tile *tiles = new Texture::Tile[level.tilesCount];
             for (int i = 0; i < level.tilesCount; i++) {
                 tiles[i].width = tiles[i].height = 256;
@@ -1777,10 +1925,68 @@ struct Level : IGame {
                 }
             }
 
+            // add common textures
+            static const uint32 CommonTexData[CTEX_MAX][25] = {
+            // flash bar
+                { 0x00000000, 0xFFA20058, 0xFFFFFFFF, 0xFFA20058, 0x00000000 },
+            // health bar
+                { 0xFF2C5D71, 0xFF5E81AE, 0xFF2C5D71, 0xFF1B4557, 0xFF16304F },
+            // oxygen bar
+                { 0xFF647464, 0xFFA47848, 0xFF647464, 0xFF4C504C, 0xFF303030 },
+            // option bar
+                { 0x00000000, 0x20202020, 0x20202020, 0x20202020, 0x00000000,
+                    0x00000000, 0x60606060, 0x60606060, 0x60606060, 0x00000000,
+                    0x00000000, 0x80808080, 0x80808080, 0x80808080, 0x00000000,
+                    0x00000000, 0x60606060, 0x60606060, 0x60606060, 0x00000000,
+                    0x00000000, 0x20202020, 0x20202020, 0x20202020, 0x00000000 },
+            // white room
+                { 0xFFFFFFFF },
+            // white object
+                { 0xFFFFFFFF },
+            // white sprite
+                { 0xFFFFFFFF },
+            };
+            const short2 CommonTexOffset[] = { short2(1, 5), short2(1, 5), short2(1, 5), short2(5, 5), short2(1, 1), short2(1, 1), short2(1, 1) };
+            ASSERT(COUNT(CommonTexOffset) == CTEX_MAX);
+            memset(CommonTex, 0, sizeof(CommonTex));
+            int16 yofs = 0;
+            for (int i = 0; i < CTEX_MAX; i++) {
+                CommonTex[i].type = CommonTex[i].dataType = TR::TEX_TYPE_SPRITE;
+                CommonTex[i].tile = level.tilesCount - 1;
+
+                const short2* ofs = &CommonTexOffset[i];
+                short2* uv = CommonTex[i].texCoordAtlas;
+                uv[0].x = uv[3].x = 0 << 7;
+                uv[1].x = uv[2].x = (ofs->x /* - 1*/) << 7;
+                uv[0].y = uv[1].y = yofs << 7;
+                uv[2].y = uv[3].y = (yofs + ofs->y /* - 1*/) << 7;
+
+                Texture::Tile& tile = tiles[CommonTex[i].tile];
+                for (int y = 0; y < ofs->y; y++) {
+                    for (int x = 0; x < ofs->x; x++) {
+                        uint32 rgba = CommonTexData[i][y + x * ofs->y];
+                        Color32 color(rgba & 255, (rgba >> 8) & 255, (rgba >> 16) & 255, (rgba >> 24) & 255);
+                        //printf("%d - (%2d,%2d) = %08x (%3d,%3d,%3d,%3d)\n", i, x, y, color.value, color.r, color.g, color.b, color.a);
+                        tile.data[(yofs + y) * tile.width + x] = color.value;
+                    }
+                }
+
+                yofs += ofs->y;
+            }
+            /*
+            for (int i = 0; i < CTEX_MAX; i++) {
+                printf("%d - %d \n", i, CommonTex[i].tile);
+                TR::TextureInfo& t = CommonTex[i];
+                for (int j = 0; j < 4; j++) printf("%d tile %d texCoordAtlas[%d] = (%f,%f)\n", i, t.tile, j, (float)t.texCoordAtlas[j].x / 128, (float)t.texCoordAtlas[j].y / 128);
+            }
+            */
+            //Texture::SaveBMP("atlasc", (const char *)tiles[level.tilesCount - 1].data, tiles[level.tilesCount - 1].width, tiles[level.tilesCount - 1].height);
+
             atlasRooms   =
             atlasObjects =
             atlasSprites =
             atlasGlyphs  = new Texture(tiles, level.tilesCount);
+            atlasRooms->setFilterQuality(Core::settings.detail.filter);
 
             for (int i = 0; i < level.tilesCount; i++)
                 delete[] tiles[i].data;
@@ -1915,9 +2121,35 @@ struct Level : IGame {
             mesh->renderBox();
             Core::setCullMode(cmFront);
         } else {
-            Basis b;
-            Core::setBasis(&b, 1); // unused
+        // every sky mesh at the camera: the shader path ignores the basis, but
+        // the FFP path (MiniGL) transforms each mesh by it, and an uninitialized
+        // Basis scattered the TR2 sky dome around the level
+            Basis b[MAX_JOINTS];
+            int count = min(int(level.models[level.extra.sky].mCount), int(MAX_JOINTS));
+            for (int i = 0; i < count; i++)
+                b[i].identity();
+            Core::setBasis(b, count);
+        #if defined(FFP) && defined(_GAPI_GL)
+            // sky.glsl pushes the dome to the far plane; FFP can't, and the dome
+            // (a small mesh around the camera) hid the whole level. Squeeze its
+            // depth to 1.0 so it only fills pixels the rooms left empty.
+            Core::setDepthWrite(false);
+            Core::validateRenderState();
+            glDepthRange(1.0, 1.0);
+            // unlit: FFP lit the dome with the ambient, lights and water tint of
+            // whatever was drawn last (Lara), so the sky darkened on jumps
+            int32 renderType = Core::renderType;
+            float waterLevel = Core::params.y;
+            Core::renderType = 1; // the flash path in GAPI::DIP skips lighting
+            Core::params.y   = 0.0f;
+        #endif
             mesh->renderModel(level.extra.sky);
+        #if defined(FFP) && defined(_GAPI_GL)
+            Core::renderType = renderType;
+            Core::params.y   = waterLevel;
+            glDepthRange(0.0, 1.0);
+            Core::setDepthWrite(true);
+        #endif
         }
 
         Core::setViewProj(mView, mProj);
@@ -2052,7 +2284,7 @@ struct Level : IGame {
 
             Core::setBlendMode(bmPremult);
 
-            #ifdef MERGE_SPRITES
+            #if defined(MERGE_SPRITES) || !defined(_GAPI_SW)
                 basis.rot = Core::mViewInv.getRot();
             #else
                 basis.rot = quat(0, 0, 0, 1);
@@ -2413,12 +2645,16 @@ struct Level : IGame {
                 Basis b;
                 b.w   = 1.0f;
                 b.pos = Core::viewPos.xyz();
-                #ifdef MERGE_SPRITES
+                #if defined(MERGE_SPRITES) || !defined(_GAPI_SW)
                     b.rot = Core::mViewInv.getRot();
                 #else
                     b.rot = quat(0, 0, 0, 1);
                 #endif
                 Core::setBasis(&b, 1);
+#ifdef FFP
+                Core::mModel.identity();
+                Core::mModel.setPos(Core::active.basis[0].pos);
+#endif
             }
 
             mesh->dynEnd();
@@ -2440,7 +2676,6 @@ struct Level : IGame {
             Core::setBlendMode(bmPremult);
             renderEntitiesTransp(transp);
 
-        #ifndef FFP
             Core::setFog(FOG_NONE);
             Core::whiteTex->bind(sDiffuse);
             Core::setBlendMode(bmMult);
@@ -2451,7 +2686,6 @@ struct Level : IGame {
                     controller->renderShadow(mesh);
             }
             Core::setBlendMode(bmNone);
-        #endif
         }
 
         if (transp == 2) {
@@ -2715,9 +2949,29 @@ struct Level : IGame {
         Core::Pass pass = Core::pass;
 
         if (water && waterCache && waterCache->visible && screen) {
+        #ifdef OGLES2_SCRDIAG
+            static int diagFrames;
+            uint8 pixScene[4] = { 0 }, pixOut[4] = { 0 };
+            GLint vp[4], fbo;
+            int errScene = glGetError();
+            if (diagFrames < 6)
+                glReadPixels(screen->origWidth / 2, screen->origHeight / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixScene);
+        #endif
             Core::setTarget(NULL, NULL, RT_CLEAR_DEPTH | RT_STORE_COLOR);
             Core::validateRenderState();
             waterCache->blitTexture(screen);
+        #ifdef OGLES2_SCRDIAG
+            if (diagFrames < 6) {
+                glGetIntegerv(GL_VIEWPORT, vp);
+                glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo);
+                int errBlit = glGetError();
+                glReadPixels(Core::width / 2, Core::height / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixOut);
+                LOG("scrdiag %d: screen %dx%d scene %02x%02x%02x err %x | fbo %d vp %d,%d %dx%d err %x out %02x%02x%02x err %x\n",
+                    diagFrames, screen->origWidth, screen->origHeight, pixScene[0], pixScene[1], pixScene[2], errScene,
+                    (int)fbo, vp[0], vp[1], vp[2], vp[3], errBlit, pixOut[0], pixOut[1], pixOut[2], glGetError());
+                diagFrames++;
+            }
+        #endif
         }
 
         if (showUI) {

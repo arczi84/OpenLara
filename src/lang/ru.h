@@ -44,6 +44,8 @@ const char *STR_RU[] = { ""
     , "Нажмите любую клавишу"
     , "%s - Выбрать"
     , "%s - Назад"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "ОПЦИИ"
     , "ИНВЕНТАРЬ"
@@ -74,7 +76,9 @@ const char *STR_RU[] = { ""
     , "Освещение"
     , "Тени"
     , "Вода"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Стерео"
     , "Простые предметы"
     , "Разрешение"
@@ -354,6 +358,12 @@ const char *STR_RU[] = { ""
     , "Lost City Of Tinnos"
     , "Meteorite Cavern"
     , "All Hallows"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 inline bool isCyrillic(char c) {

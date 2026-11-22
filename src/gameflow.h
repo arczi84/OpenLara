@@ -6,6 +6,16 @@
 
 #define CHECK_FILE(name) if (Stream::existsContent(name)) return name
 
+// The level/1 PNG fallbacks are files served beside the Web build; they are
+// not part of the original PC/GOG DATA directory.  A native Amiga build has
+// no downloader, so return no optional loading screen instead of reporting a
+// misleading missing-file error.  Real PSX/Saturn screens above still win.
+#ifdef AMIGA_PORT
+    #define TR1_WEB_SCREEN(name) NULL
+#else
+    #define TR1_WEB_SCREEN(name) name
+#endif
+
 namespace TR {
 
     bool useEasyStart;
@@ -1193,7 +1203,24 @@ namespace TR {
     }
 
     bool checkTrack(const char *pre, char *name) {
+    #ifdef AMIGA_PORT
+        // PCM avoids real-time Vorbis decoding on the 68060.  Keep OGG and
+        // MP3 as fallbacks so existing data sets still work.
+        static const char *fmt[] = { ".wav", ".ogg", ".mp3" };
+    #else
         static const char *fmt[] = { ".ogg", ".mp3", ".wav" };
+    #endif
+    #if defined(__AMIGA_MINIGL__) || defined(__AMIGA_OGLES2__)
+        // only the selected language, no suffix and English: probing all 15
+        // language suffixes made a missing track cost ~190 fopens
+        const char *all[] = { LANG_PREFIXES };
+        const char *lng[] = { "", "", "_EN" };
+        int start = 1;
+        if (Core::settings.audio.language != 0) {
+            start = 0;
+            lng[0] = all[Core::settings.audio.language];
+        }
+    #else
         const char *lng[] = { "", "", LANG_PREFIXES };
 
         int start = 1;
@@ -1201,21 +1228,58 @@ namespace TR {
             start = 0;
             lng[start] = lng[Core::settings.audio.language + 2];
         }
+    #endif
+
+    // Every miss costs an fopen for each format and language (well over a
+    // hundred for a missing track), ~300 ms on the Amiga, and TR2 triggers
+    // its voice tracks from checkTrigger in the middle of gameplay. Files
+    // don't come and go while playing, so remember each answer.
+        struct CacheItem {
+            char key[32];
+            char path[64];
+            int  language;
+        };
+        static CacheItem cache[128];
+        static int cacheCount = 0;
+
+        char key[32];
+        strncpy(key, pre, sizeof(key) - 1);
+        key[sizeof(key) - 1] = 0;
+        strncat(key, name, sizeof(key) - 1 - strlen(key));
+
+        for (int i = 0; i < cacheCount; i++) {
+            if (cache[i].language == Core::settings.audio.language && !strcmp(cache[i].key, key)) {
+                if (!cache[i].path[0])
+                    return false;
+                strcpy(name, cache[i].path);
+                return true;
+            }
+        }
 
         char buf[64];
-        for (int f = 0; f < COUNT(fmt); f++)
+        bool found = false;
+        for (int f = 0; f < COUNT(fmt) && !found; f++)
             for (int l = start; l < COUNT(lng); l++) {
                 strcpy(buf, pre);
                 strcat(buf, name);
                 strcat(buf, lng[l]);
                 strcat(buf, fmt[f]);
                 if (Stream::existsContent(buf)) {
-                    strcpy(name, buf);
-                    return true;
+                    found = true;
+                    break;
                 }
             }
 
-        return false;
+        if (cacheCount < COUNT(cache)) {
+            CacheItem &item = cache[cacheCount++];
+            strcpy(item.key, key);
+            strcpy(item.path, found ? buf : "");
+            item.language = Core::settings.audio.language;
+        }
+
+        if (found)
+            strcpy(name, buf);
+        return found;
     }
 
     StringID getVideoSubs(LevelID id) {
@@ -1245,7 +1309,7 @@ namespace TR {
         }
 
         sprintf(title, "track_%s", str);
-        if (!checkTrack("", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
+        if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
             return false;
         }
 
@@ -1276,11 +1340,20 @@ namespace TR {
                 case VER_TR1_SAT :
                 case VER_TR1_PC  :
                 case VER_TR1_PSX :
+#ifdef AMIGA_PORT
+                    // The Amiga music packs use remapped numeric WAV names.
+                    // Avoid probing every track_XX language/format/directory
+                    // combination on the game thread before each voice line.
+                    // checkTrack preserves the selected-language preference.
+                    sprintf(title, "%03d", remapTrack(version, track));
+                    if (checkTrack("audio-adp4/", title))
+                        break;
+#endif
                     sprintf(title, "track_%02d", track);
-                    if (!checkTrack("", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
+                    if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
                         track = remapTrack(version, track);
                         sprintf(title, "%03d", track);
-                        if (!checkTrack("", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
+                        if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/1/", title) && !checkTrack("audio/", title)) {
                             callback(NULL, userData);
                             return;
                         }
@@ -1294,7 +1367,7 @@ namespace TR {
                     //}
                     track = remapTrack(version, track);
                     sprintf(title, "track_%02d", track);
-                    if (!checkTrack("", title) && !checkTrack("audio/2/", title) && !checkTrack("audio/", title)) {
+                    if (!checkTrack("", title) && !checkTrack("audio-adp4/", title) && !checkTrack("audio/2/", title) && !checkTrack("audio/", title)) {
                         callback(NULL, userData);
                         return;
                     }
@@ -1365,12 +1438,12 @@ namespace TR {
                 CHECK_FILE("DELDATA/JAPTIT.RAW");   // PSX JAP
                 CHECK_FILE("BINDATA/USATIT.BIN");   // SEGA
                 CHECK_FILE("BINDATA/TITLE1.BIN");   // SEGA
-                return "level/1/AMERTIT.PNG";       // WEB
+                return TR1_WEB_SCREEN("level/1/AMERTIT.PNG");
             case LVL_TR1_GYM :
                 CHECK_FILE("DELDATA/GYMLOAD.RAW");
                 CHECK_FILE("BINDATA/GYM224.BIN");
                 CHECK_FILE("BINDATA/GYM.BIN");
-                return "level/1/GYMLOAD.PNG";
+                return TR1_WEB_SCREEN("level/1/GYMLOAD.PNG");
             case LVL_TR1_1  :
             case LVL_TR1_2  :
             case LVL_TR1_3A :
@@ -1378,7 +1451,7 @@ namespace TR {
                 CHECK_FILE("DELDATA/AZTECLOA.RAW");
                 CHECK_FILE("BINDATA/AZTEC224.BIN");
                 CHECK_FILE("BINDATA/AZTEC.BIN");
-                return "level/1/AZTECLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/AZTECLOA.PNG");
             case LVL_TR1_4  :
             case LVL_TR1_5  :
             case LVL_TR1_6  :
@@ -1387,21 +1460,21 @@ namespace TR {
                 CHECK_FILE("DELDATA/GREEKLOA.RAW");
                 CHECK_FILE("BINDATA/GREEK224.BIN");
                 CHECK_FILE("BINDATA/GREEK.BIN");
-                return "level/1/GREEKLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/GREEKLOA.PNG");
             case LVL_TR1_8A :
             case LVL_TR1_8B :
             case LVL_TR1_8C :
                 CHECK_FILE("DELDATA/EGYPTLOA.RAW");
                 CHECK_FILE("BINDATA/EGYPT224.BIN");
                 CHECK_FILE("BINDATA/EGYPT.BIN");
-                return "level/1/EGYPTLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/EGYPTLOA.PNG");
             case LVL_TR1_10A :
             case LVL_TR1_10B :
             case LVL_TR1_10C :
                 CHECK_FILE("DELDATA/ATLANLOA.RAW");
                 CHECK_FILE("BINDATA/ATLAN224.BIN");
                 CHECK_FILE("BINDATA/ATLAN.BIN");
-                return "level/1/ATLANLOA.PNG";
+                return TR1_WEB_SCREEN("level/1/ATLANLOA.PNG");
         // TR2
             case LVL_TR2_TITLE :
                 CHECK_FILE("TITLE.png");            // Android

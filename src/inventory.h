@@ -8,7 +8,7 @@
 
 #define INV_MAX_ITEMS  32
 #define INV_MAX_RADIUS 688.0f
-#if defined(_OS_PSP) || defined(_OS_3DS) || defined(_OS_GCW0)
+#if defined(_OS_PSP) || defined(_OS_3DS) || defined(_OS_GCW0) || defined(__AMIGA_MINIGL__)
     #define INV_BG_SIZE    256
 #else
     #define INV_BG_SIZE    512
@@ -22,9 +22,22 @@
 #define INV_FOV               70.0f
 
 #define TITLE_LOADING         64.0f
+#define CREDITS_TIME          10.0f   // seconds per TR1 PC credit picture
 #define LINE_HEIGHT           20.0f
 
 static const struct OptionItem *waitForKey = NULL;
+
+#ifdef AMIGA_PORT
+static const char *getAmigaResolutionName(uint8 value) {
+    static const char *names[] = {
+        "320x240", "512x384", "640x480", "800x600", "960x540", "1024x576",
+        "1024x768", "1280x720", "1280x800", "1280x960", "1280x1024",
+        "1366x768", "1440x900", "1600x900", "1680x1050", "1920x1080"
+    };
+    static_assert(COUNT(names) == Core::Settings::AMIGA_RES_MAX, "Resolution labels must match saved IDs");
+    return value < COUNT(names) ? names[value] : names[Core::Settings::AMIGA_RES_640_480];
+}
+#endif
 
 struct OptionItem {
     enum Type {
@@ -76,10 +89,24 @@ struct OptionItem {
             alpha = uint8(t * 255.0f);
         }
 
-        UI::textOut(vec2(x, y), vStr, UI::aCenter, w, alpha, UI::SHADE_GRAY); // color as StringID
+#ifdef AMIGA_PORT
+        const char *customValue = oStr == STR_OPT_RESOLUTION ? getAmigaResolutionName(value) : NULL;
+    #ifdef __AMIGA_OGLES2__
+        if (oStr == STR_OPT_MSAA && value)
+            customValue = "4x";
+    #endif
+        if (customValue)
+            UI::textOut(vec2(x, y), customValue, UI::aCenter, w, alpha, UI::SHADE_GRAY);
+        else
+#endif
+            UI::textOut(vec2(x, y), vStr, UI::aCenter, w, alpha, UI::SHADE_GRAY); // color as StringID
 
         if (type == TYPE_PARAM && active) {
+#ifdef AMIGA_PORT
+            int maxWidth = customValue ? UI::getTextSize(customValue).x : UI::getTextSize(STR[color + value]).x;
+#else
             int maxWidth = UI::getTextSize(STR[color + value]).x;
+#endif
             maxWidth = maxWidth / 2 + 8;
             x += w * 0.5f;
             if (maxValue != 0xFF) {
@@ -136,16 +163,37 @@ struct OptionItem {
 static const OptionItem optDetail[] = {
     OptionItem( OptionItem::TYPE_TITLE,  STR_SELECT_DETAIL ),
     OptionItem( ),
-#ifdef INV_QUALITY
+#if defined(INV_QUALITY) && !defined(FFP)
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_FILTER,   SETTINGS( detail.filter    ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_LIGHTING, SETTINGS( detail.lighting  ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_SHADOWS,  SETTINGS( detail.shadows   ), STR_QUALITY_LOW, 0, 2 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_WATER,    SETTINGS( detail.water     ), STR_QUALITY_LOW, 0, 2 ),
 #endif
+#ifdef FFP
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_FOG,             SETTINGS(detail.fog), STR_OFF, 0, 1),
+#endif
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SIMPLE_ITEMS,    SETTINGS( detail.simple    ), STR_OFF, 0, 1 ),
+#ifdef __AMIGA_OGLES2__
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SHOW_FPS,        SETTINGS( showFPS          ), STR_OFF, 0, 1 ),
+#endif
+#ifdef __AMIGA_OGLES2__
+    // ogles2.library's 4x MSAA; read when the GL context is created (next start)
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_MSAA,            SETTINGS( msaa             ), STR_OFF, 0, 1 ),
+#endif
+    OptionItem(),
+#if defined(__SDL3__) || defined(__SDL2__) || defined(_OS_WIN) || defined(AMIGA_PORT)
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_MODE,            SETTINGS(detail.displaymode), STR_DISPLAYMODE_WINDOWED, 0, 1),
+#endif
+#ifdef AMIGA_PORT
+    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_RESOLUTION,      SETTINGS(resolution), STR_EMPTY, 0, Core::Settings::AMIGA_RES_MAX - 1),
+#endif
 #ifdef INV_QUALITY
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_RESOLUTION,      SETTINGS( detail.scale     ), STR_SCALE_100, 0, 3 ),
-    OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS( detail.vsync     ), STR_OFF, 0, 1 ),
+#if !defined(FFP) && !defined(AMIGA_PORT)
+    OptionItem(OptionItem::TYPE_PARAM,  STR_OPT_SCALE,      SETTINGS(detail.scale), STR_SCALE_100, 0, 3),
+#endif
+#endif
+#if defined(INV_QUALITY) || defined(AMIGA_PORT)
+    OptionItem(OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_VSYNC,    SETTINGS(detail.vsync), STR_OFF, 0, 1),
 #endif
 #ifdef INV_STEREO
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_DETAIL_STEREO,   SETTINGS( detail.stereo    ), STR_NO_STEREO, 0, 
@@ -167,9 +215,9 @@ static const OptionItem optSound[] = {
     OptionItem( OptionItem::TYPE_PARAM,  STR_EMPTY,         SETTINGS( audio.sound     ), 0xFFFF8000, 102, SND_MAX_VOLUME, true ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_REVERBERATION, SETTINGS( audio.reverb    ), STR_OFF, 0, 1 ),
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_SUBTITLES, SETTINGS( audio.subtitles ), STR_OFF, 0, 1 ),
-#ifndef FFP
+//#ifndef FFP
     OptionItem( OptionItem::TYPE_PARAM,  STR_OPT_LANGUAGE,  SETTINGS( audio.language  ), STR_LANG_EN, 0, STR_LANG_SV - STR_LANG_EN ),
-#endif
+//#endif
 };
 
 static const OptionItem optControls[] = {
@@ -237,6 +285,8 @@ struct Inventory {
     int     playerIndex;
 
     float       titleTimer;
+    int         creditIndex; // TR1 PC: DATA/CREDn.PCX shown after the end video, 0 = none
+    bool        creditsDone;
     float       changeTimer;
     TR::LevelID nextLevel; // toggle result
     ControlKey  lastKey;
@@ -286,12 +336,19 @@ struct Inventory {
                 case TR::Entity::INV_SHOTGUN         : desc = Desc( STR_SHOTGUN,         PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
                 case TR::Entity::INV_MAGNUMS         : desc = Desc( STR_MAGNUMS,         PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
                 case TR::Entity::INV_UZIS            : desc = Desc( STR_UZIS,            PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
+                case TR::Entity::INV_M16             :
+                case TR::Entity::INV_HARPOON         :
+                case TR::Entity::INV_GRENADE         : desc = Desc( STR_UNKNOWN,         PAGE_INVENTORY, level->extra.inv.weapons[type]   ); break;
                                                                                    
                 case TR::Entity::INV_AMMO_PISTOLS    : desc = Desc( STR_AMMO_PISTOLS,    PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
                 case TR::Entity::INV_AMMO_SHOTGUN    : desc = Desc( STR_AMMO_SHOTGUN,    PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
                 case TR::Entity::INV_AMMO_MAGNUMS    : desc = Desc( STR_AMMO_MAGNUMS,    PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
                 case TR::Entity::INV_AMMO_UZIS       : desc = Desc( STR_AMMO_UZIS,       PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
+                case TR::Entity::INV_AMMO_M16        :
+                case TR::Entity::INV_AMMO_HARPOON    :
+                case TR::Entity::INV_AMMO_GRENADE    : desc = Desc( STR_UNKNOWN,         PAGE_INVENTORY, level->extra.inv.ammo[type]      ); break;
 
+                case TR::Entity::INV_FLARES          : desc = Desc( STR_UNKNOWN,         PAGE_INVENTORY, level->getModelIndex(type) - 1   ); break;
                 case TR::Entity::INV_MEDIKIT_SMALL   : desc = Desc( STR_MEDI_SMALL,      PAGE_INVENTORY, level->extra.inv.medikit[0]      ); break;
                 case TR::Entity::INV_MEDIKIT_BIG     : desc = Desc( STR_MEDI_BIG,        PAGE_INVENTORY, level->extra.inv.medikit[1]      ); break;
 
@@ -570,8 +627,13 @@ struct Inventory {
     static void loadTitleBG(Stream *stream, void *userData) {
         Inventory *inv = (Inventory*)userData;
 
-        if (!inv->video)
+        if (!inv->video) {
             inv->skipVideo(); // play background track etc.
+            if (inv->creditIndex) { // no end video: the credit pictures own the background now
+                delete stream;
+                return;
+            }
+        }
 
         if (!stream) {
             inv->titleTimer = 0.0f;
@@ -579,9 +641,47 @@ struct Inventory {
         }
         inv->titleTimer = inv->game->getLevel()->isTitle() ? 0.0f : 3.0f;
 
+        delete inv->title; // the last credit picture
         inv->title = Texture::Load(*stream);
         inv->background[0] = inv->title;
         delete stream;
+    }
+
+    static const char* getCreditScreen(int index) {
+        static const char *names[] = { "DATA/CRED1.PCX", "DATA/CRED2.PCX", "DATA/CRED3.PCX" };
+        if (index < 1 || index > COUNT(names) || !Stream::existsContent(names[index - 1]))
+            return NULL;
+        return names[index - 1];
+    }
+
+    static void loadCreditBG(Stream *stream, void *userData) {
+        Inventory *inv = (Inventory*)userData;
+        if (!stream) {
+            inv->finishCredits();
+            return;
+        }
+        delete inv->title;
+        inv->title = Texture::Load(*stream);
+        inv->background[0] = inv->title;
+        delete stream;
+        inv->titleTimer = CREDITS_TIME;
+    }
+
+    void showCredit(int index) {
+        const char *name = getCreditScreen(index);
+        if (!name) {
+            finishCredits();
+            return;
+        }
+        creditIndex = index;
+        titleTimer  = TITLE_LOADING;
+        new Stream(name, loadCreditBG, this);
+    }
+
+    void finishCredits() {
+        creditIndex = 0;
+        titleTimer  = TITLE_LOADING;
+        new Stream(TR::getGameScreen(game->getLevel()->id), loadTitleBG, this);
     }
 
     static void loadVideo(Stream *stream, void *userData) {
@@ -717,6 +817,8 @@ struct Inventory {
     void init(bool playLogo, bool playVideo) {
         active    = false;
         phaseRing = 0.0f;
+        creditIndex = 0;
+        creditsDone = false;
 
         this->playLogo  = playLogo;
         this->playVideo = playVideo;
@@ -781,6 +883,21 @@ struct Inventory {
                 case TR::Entity::INV_UZIS         :
                 case TR::Entity::INV_AMMO_UZIS    :
                     addAmmo(type, count, 50, TR::Entity::INV_UZIS, TR::Entity::INV_AMMO_UZIS);
+                    break;
+                case TR::Entity::INV_M16          :
+                case TR::Entity::INV_AMMO_M16     :
+                    addAmmo(type, count, 40, TR::Entity::INV_M16, TR::Entity::INV_AMMO_M16);
+                    break;
+                case TR::Entity::INV_HARPOON      :
+                case TR::Entity::INV_AMMO_HARPOON :
+                    addAmmo(type, count, 3, TR::Entity::INV_HARPOON, TR::Entity::INV_AMMO_HARPOON);
+                    break;
+                case TR::Entity::INV_GRENADE      :
+                case TR::Entity::INV_AMMO_GRENADE :
+                    addAmmo(type, count, 2, TR::Entity::INV_GRENADE, TR::Entity::INV_AMMO_GRENADE);
+                    break;
+                case TR::Entity::INV_FLARES       :
+                    count *= 6;
                     break;
                 default : ;
             }
@@ -1119,6 +1236,13 @@ struct Inventory {
         UI::showSubs(STR_EMPTY);
         game->playTrack(0);
         if (game->getLevel()->isTitle()) {
+            // TR1 PC: the three credit pictures follow the end video
+            if (TR::isGameEnded && !creditsDone && (game->getLevel()->version & TR::VER_TR1) && getCreditScreen(1)) {
+                creditsDone = true;
+                Input::reset();
+                showCredit(1);
+                return;
+            }
             titleTimer = 0.0f;
             toggle(0, Inventory::PAGE_OPTION);
         }
@@ -1132,6 +1256,8 @@ struct Inventory {
         {
             if (video) {
                 skipVideo();
+            } else if (creditIndex && titleTimer > 1.0f && titleTimer != TITLE_LOADING) {
+                titleTimer = 1.0f; // fade to the next picture
             } else if (titleTimer > 1.0f && titleTimer < 2.5f) {
                 titleTimer = 1.0f;
             }
@@ -1150,6 +1276,10 @@ struct Inventory {
             titleTimer -= Core::deltaTime;
             if (titleTimer < 0.0f)
                 titleTimer = 0.0f;
+            if (creditIndex && titleTimer == 0.0f) {
+                showCredit(creditIndex + 1);
+                return;
+            }
         }
 
         if (!isActive()) {
@@ -1349,7 +1479,10 @@ struct Inventory {
                 case TR::Entity::INV_AMMO_PISTOLS    :
                 case TR::Entity::INV_AMMO_SHOTGUN    :
                 case TR::Entity::INV_AMMO_MAGNUMS    :
-                case TR::Entity::INV_AMMO_UZIS       : break;
+                case TR::Entity::INV_AMMO_UZIS       :
+                case TR::Entity::INV_AMMO_M16        :
+                case TR::Entity::INV_AMMO_HARPOON    :
+                case TR::Entity::INV_AMMO_GRENADE    : break;
                 default :
                     game->invUse(playerIndex, type);
                     toggle();
@@ -1393,7 +1526,15 @@ struct Inventory {
 
         for (int i = 0; i < COUNT(background); i++) {
             if (!background[i]) {
+#ifdef __AMIGA_MINIGL__
+                // PiStorm3D's packed RGB565 upload path is not reliable on
+                // real hardware yet.  The inventory capture is rewritten
+                // every time the menu opens, so use the backend's verified
+                // RGBA8 path here instead.
+                background[i] = new Texture(INV_BG_SIZE, INV_BG_SIZE, 1, FMT_RGBA, OPT_TARGET);
+#else
                 background[i] = new Texture(INV_BG_SIZE, INV_BG_SIZE, 1, FMT_RGB16, OPT_TARGET);
+#endif
             }
         }
 
@@ -1438,7 +1579,7 @@ struct Inventory {
     }
 
     void prepareBackground() {
-        #ifdef FFP
+        #if defined(FFP) && defined(_GAPI_GU)
             return;
         #endif
 
@@ -1466,12 +1607,58 @@ struct Inventory {
         mProj.scale(vec3(1.0f / 32767.0f));
         Core::setViewProj(mView, mProj);
 
-        for (int view = 0; view < viewsCount; view++) {
+#if defined(FFP) && defined(_GAPI_GL)
+        GAPI::Texture* target = Core::active.target;
+        if (target) {
+
+#ifdef __AMIGA_MINIGL__
+            // Finish the gameplay capture without swapping buffers:
+            // MiniGL readback after a display switch returns the old frame.
+            glFinish();
+
+            uint8_t* src = new uint8_t[target->width * target->height * 3];
+            uint8_t* dst = new uint8_t[target->width * target->height * 4];
+            glReadPixels(0, 0, target->width, target->height, GL_RGB, GL_UNSIGNED_BYTE, src);
+
+            for (int i = 0; i < target->width * target->height; i++) {
+                uint8_t r = src[i * 3 + 0];
+                uint8_t g = src[i * 3 + 1];
+                uint8_t b = src[i * 3 + 2];
+                uint8_t gray = (uint8_t)((77 * r + 150 * g + 29 * b) >> 8);
+                dst[i * 4 + 0] = gray;
+                dst[i * 4 + 1] = gray;
+                dst[i * 4 + 2] = gray;
+                dst[i * 4 + 3] = 255;
+            }
+#else
+            uint32_t* src = new uint32_t[target->width * target->height];
+            uint16_t* dst = new uint16_t[target->width * target->height];
+            glReadPixels(0, 0, target->width, target->height, GL_RGBA, GL_UNSIGNED_BYTE, src);
+
+            for (int i = 0; i < target->width * target->height; i++) {
+                uint32_t rgba = src[i];
+                uint8_t r = (rgba >> 0 ) & 0xFF;
+                uint8_t g = (rgba >> 8 ) & 0xFF;
+                uint8_t b = (rgba >> 16) & 0xFF;
+                uint8_t gray = (uint8_t)(0.299f * r  + 0.587f * g + 0.114f * b);
+                dst[i] = ((gray >> 4) << 11) | ((gray >> 3) << 5) | (gray >> 3);
+            }
+#endif
+
+            target->update(dst);
+
+            delete[] src;
+            delete[] dst;
+	
+        }
+
+#else
+       for (int view = 0; view < viewsCount; view++) {
             blur(background[view], background[2]);
             grayscale(background[view], background[2]);
             swap(background[view], background[2]);
         }
-
+#endif    
         #ifdef _OS_3DS
             GAPI::rotate90 = true;
         #endif
@@ -1616,7 +1803,21 @@ struct Inventory {
             //
         } else {
             StringID str = getItemName(item->desc.str, game->getLevel()->id, item->type);
-            UI::textOut(vec2(eye, 480 - 32), str, UI::aCenter, UI::width);
+            const char *name = NULL; // TR2 weapons have no translations yet
+            switch (item->type) {
+                case TR::Entity::INV_M16          : name = "M16";             break;
+                case TR::Entity::INV_AMMO_M16     : name = "M16 Clips";       break;
+                case TR::Entity::INV_HARPOON      : name = "Harpoon Gun";     break;
+                case TR::Entity::INV_AMMO_HARPOON : name = "Harpoons";        break;
+                case TR::Entity::INV_GRENADE      : name = "Grenade Launcher"; break;
+                case TR::Entity::INV_AMMO_GRENADE : name = "Grenades";        break;
+                case TR::Entity::INV_FLARES       : name = "Flares";          break;
+                default : ;
+            }
+            if (name)
+                UI::textOut(vec2(eye, 480 - 32), name, UI::aCenter, UI::width);
+            else
+                UI::textOut(vec2(eye, 480 - 32), str, UI::aCenter, UI::width);
         }
 
         renderItemCount(item, vec2(UI::width / 2 - 160, 480 - 96), 320);
@@ -1658,7 +1859,9 @@ struct Inventory {
                 case TR::Entity::INV_MAP       :
                     UI::textOut(vec2(0, 240), STR_EMPTY, UI::aCenter, UI::width);
                     break;
-                default : ;
+                default : 
+                    break;
+
             }
         }
     }
@@ -1742,13 +1945,13 @@ struct Inventory {
 
         float aspectImg = aspectSrc / aspectDst;
 
-        #ifdef FFP
+        /*#ifdef FFP
             mat4 m;
             m.identity();
             Core::setViewProj(m, m);
             Core::mModel.identity();
             Core::mModel.scale(vec3(1.0f / 32767.0f));
-        #endif
+        #endif*/
 
         short o_frame = 32767;
         short i_frame = 16384;
@@ -1798,6 +2001,10 @@ struct Inventory {
         vertices[10].light = 
         vertices[11].light = ubyte4(0, 0, 0, alpha);
 
+        for (int i = 0; i < 12; i++) {
+            vertices[i].color = ubyte4(255, 255, 255, 255);
+        }
+
         short2 t0(short(tx * 32767), short(ty * 32767));
         short2 t1(t0.x + short(ax * 32767), t0.y + short(ay * 32767));
 
@@ -1831,6 +2038,7 @@ struct Inventory {
 
         game->setShader(Core::passFilter, Shader::FILTER_UPSCALE, false, false);
         Core::active.shader->setParam(uParam, vec4(float(Core::active.textures[sDiffuse]->width), float(Core::active.textures[sDiffuse]->height), 0.0f, 0.0f));
+        Core::setMaterial(1, 1, 1, 1);
         game->getMesh()->renderBuffer(indices, COUNT(indices), vertices, COUNT(vertices));
     }
 
@@ -1851,7 +2059,7 @@ struct Inventory {
         vertices[3].texCoord = short4(    0,     0, 0, 0);
 
         Texture *backTex = NULL;
-    #ifdef FFP
+#if defined(FFP) && defined(_GAPI_SW)
         backTex = Core::blackTex;
 
         mat4 m;
@@ -1859,7 +2067,7 @@ struct Inventory {
         Core::setViewProj(m, m);
         Core::mModel.identity();
 
-    #else
+#else
         if (Core::settings.detail.stereo == Core::Settings::STEREO_VR || !background[0]) {
             backTex = Core::blackTex; // black background 
         } else {
@@ -1870,7 +2078,14 @@ struct Inventory {
                 backTex = background[Core::eye <= 0.0f ? 0 : 1];
             }
         }
-    #endif
+#endif
+#if defined(FFP)
+		for (int i = 0; i < 4; i++) {
+            vertices[i].color = ubyte4(255, 255, 255, 255);
+        }
+       
+       // backTex->dump("background.bmp");
+#endif
         backTex->bind(sDiffuse);
 
         mat4 mProj, mView;
@@ -1881,7 +2096,7 @@ struct Inventory {
 
         game->setShader(Core::passFilter, Shader::FILTER_UPSCALE, false, false);
         Core::active.shader->setParam(uParam, vec4(float(Core::active.textures[sDiffuse]->width), float(Core::active.textures[sDiffuse]->height), 0.0f, 0.0f));
-
+        Core::setMaterial(1, 1, 1, 1);
         Core::setBlendMode(phaseRing < 1.0f ? bmAlpha : bmNone);
         game->getMesh()->renderBuffer(indices, COUNT(indices), vertices, COUNT(vertices));
     }
@@ -2081,7 +2296,7 @@ struct Inventory {
             const char *bSelect = STR[STR_KEY_FIRST + ikEnter];
             const char *bBack   = STR[STR_KEY_FIRST + Core::settings.controls[playerIndex].keys[cInventory].key];
 
-            #if defined(_OS_SWITCH) || defined(_OS_3DS) || defined(_OS_GCW0) || defined(_OS_XBOX) || defined(_OS_XB1)
+            #if defined(_OS_SWITCH) || defined(_OS_3DS) || defined(_OS_GCW0) || defined(_OS_XBOX) || defined(_OS_XB1) || defined(__SDL3__) || defined(__SDL2__)
                 bSelect = "A";
                 bBack   = "B";
             #endif

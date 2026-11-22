@@ -40,6 +40,8 @@ const char *STR_HU[] = { ""
     , "Nyomj meg egy gombot"
     , "%s - Kiv)alaszt"
     , "%s - Vissza"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "OPCI)OK"
     , "T)ARGYLISTA"
@@ -70,7 +72,9 @@ const char *STR_HU[] = { ""
     , "Vil)ag)it)as"
     , ")Arny)ekok"
     , "V)iz"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Sztere)o"
     , "Egyszer\"u t)argyak"
     , "Felbont)as"
@@ -350,6 +354,12 @@ const char *STR_HU[] = { ""
     , "Tinnos elveszett v)arosa"
     , "Meteorit barlang"
     , "Mindenszentek"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

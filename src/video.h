@@ -316,20 +316,20 @@ struct Video {
             int value;
 
             if ((value  = bs.readBit()) != 1 ||
-                (value += bs.read(3)) != 8 ||
-                (value += bs.read(7)) != 135)
+                (value += bs.readBits(3)) != 8 ||
+                (value += bs.readBits(7)) != 135)
                 return value;
 
-            return value + bs.read(12);
+            return value + bs.readBits(12);
         }
 
         int getSkip130(BitStream &bs) {
             int value;
 
             if ((value = bs.readBit())) return 0;
-            if ((value = bs.read(3)))   return value;
-            if ((value = bs.read(8)))   return value + 7;
-            if ((value = bs.read(15)))  return value + 262;
+            if ((value = bs.readBits(3)))   return value;
+            if ((value = bs.readBits(8)))   return value + 7;
+            if ((value = bs.readBits(15)))  return value + 262;
 
             return -1;
         }
@@ -351,7 +351,7 @@ struct Video {
             }
 
             Codebook &cb = codebook[cbIndex];
-            uint32 bIndex = bs.read(cb.depth);
+            uint32 bIndex = bs.readBits(cb.depth);
 
             if (cbIndex == 1)
                 bIndex += sbIndex << cb.depth;
@@ -412,7 +412,10 @@ struct Video {
             memcpy(&flags, data + 0, 4);
             memcpy(&size,  data + 4, 4);
             data += 8;
-
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            size = swap32(size);
+            flags = swap32(flags);
+#endif
             curVideoPos += size;
 
         // skip unchanged frame
@@ -424,8 +427,7 @@ struct Video {
         // read data into bit stream
             size -= (sizeof(flags) + sizeof(size));
 
-            BitStream bs(data, size);
-
+            BitStream bs(data, size, true);
         // read codebook changes
             for (int i = 0; i < 3; i++) {
                 if (flags & (1 << (17 + i))) {
@@ -433,10 +435,10 @@ struct Video {
                     Codebook &cb = codebook[i];
 
                     if (i == 2) {
-                        cb.size  = bs.read(20);
+                        cb.size  = bs.readBits(20);
                         cb.depth = log2i(cb.size - 1) + 1;
                     } else {
-                        cb.depth = bs.read(4);
+                        cb.depth = bs.readBits(4);
                         cb.size  = (i == 0 ? 1 : sbCount) << cb.depth;
                     }
 
@@ -444,10 +446,10 @@ struct Video {
                     cb.blocks = new MacroBlock[cb.size];
 
                     for (uint32 j = 0; j < cb.size; j++) {
-                        uint8  mask = bs.read(4);
+                        uint8  mask = bs.readBits(4);
                         Color32 cA, cB;
-                        cA.SetRGB15(bs.read(15));
-                        cB.SetRGB15(bs.read(15));
+                        cA.SetRGB15(bs.readBits(15));
+                        cB.SetRGB15(bs.readBits(15));
 
                         if (cA.value != cB.value && (mask == 6 || mask == 9) && // check for 0101 or 1010 mask
                             abs(int(cA.r) - int(cB.r)) <= 8 &&
@@ -495,7 +497,7 @@ struct Video {
 
                     while (!bs.readBit()) {
                         decodeMacroBlock(bs, mb, cbIndex, sbIndex);
-                        uint16 mask = bs.read(16);
+                        uint16 mask = bs.readBits(16);
                         multiMask |= mask;
                         for (int i = 0; i < 16; i++)
                             if (mask & maskMatrix[i])
@@ -503,9 +505,9 @@ struct Video {
                     }
 
                     if (!bs.readBit()) {
-                        uint16 invMask = bs.read(4);
+                        uint16 invMask = bs.readBits(4);
                         for (int i = 0; i < 4; i++)
-                            multiMask ^= ((invMask & (1 << i)) ? 0x0F : bs.read(4)) << (i * 4);
+                            multiMask ^= ((invMask & (1 << i)) ? 0x0F : bs.readBits(4)) << (i * 4);
                         for (int i = 0; i < 16; i++)
                             if (multiMask & maskMatrix[i]) {
                                 decodeMacroBlock(bs, mb, cbIndex, sbIndex);
@@ -515,7 +517,7 @@ struct Video {
                         if (flags & (1 << 16))
                             while (!bs.readBit()) {
                                 decodeMacroBlock(bs, mb, cbIndex, sbIndex);
-                                insertMacroBlock(sb, mb, bs.read(4));
+                                insertMacroBlock(sb, mb, bs.readBits(4));
                             }
 
                     copySuperBlock(dst, width, sb.pixels, 8);
@@ -574,7 +576,8 @@ struct Video {
             Chunk &chunk = chunks[curVideoChunk];
             curVideoPos = chunk.videoSize;
 
-            BitStream bs(data, chunk.videoSize);
+            BitStream bs(data, chunk.videoSize, true);
+            
             bs.data += 16; // skip 16 bytes (frame size, version, gamma/linear chroma flags etc.)
 
             uint8 *lumaPtr = lumaFrame;
@@ -601,10 +604,10 @@ struct Video {
                     luma = *lumaPtr;
                 } else {
                     if (bs.readBit()) {
-                        uint32 sign = bs.read(6);
-                        uint32 diff = bs.read(2);
+                        uint32 sign = bs.readBits(6);
+                        uint32 diff = bs.readBits(2);
 
-                        luma = bs.read(5) * 2;
+                        luma = bs.readBits(5) * 2;
 
                         for (int i = 0; i < 4; i++)
                             Y[i] = clamp(luma + offsetLUT[diff] * signLUT[sign][i], 0U, 63U);
@@ -613,7 +616,7 @@ struct Video {
                     } else {
 
                         if (bs.readBit())
-                            luma = bs.readBit() ? bs.read(6) : ((luma + lumaLUT[bs.read(3)]) & 63);
+                            luma = bs.readBit() ? bs.readBits(6) : ((luma + lumaLUT[bs.readBits(3)]) & 63);
 
                         for (int i = 0; i < 4; i++)
                             Y[i] = luma;
@@ -623,10 +626,10 @@ struct Video {
 
                     if (bs.readBit()) {
                         if (bs.readBit()) {
-                            U = bs.read(5);
-                            V = bs.read(5);
+                            U = bs.readBits(5);
+                            V = bs.readBits(5);
                         } else {
-                            uint32 idx = bs.read(3);
+                            uint32 idx = bs.readBits(3);
                             U = (U + chromaLUT[0][idx]) & 31;
                             V = (V + chromaLUT[1][idx]) & 31;
                         }
@@ -823,7 +826,9 @@ struct Video {
             buildLUT(AC_LUT_9, 62, 110, 9);
 
             uint32 syncMagic[3];
-            stream->raw(syncMagic, sizeof(syncMagic));
+            syncMagic[0] = stream->readLE32();
+            syncMagic[1] = stream->readLE32();
+            syncMagic[2] = stream->readLE32();
             stream->seek(-(int)sizeof(syncMagic));
 
             hasSyncHeader = syncMagic[0] == 0xFFFFFF00 && syncMagic[1] == 0xFFFFFFFF && syncMagic[2] == 0x00FFFFFF;
@@ -895,7 +900,19 @@ struct Video {
                 }
 
                 Sector sector;
-                stream->raw(&sector, sizeof(Sector));
+                //stream->raw(&sector, sizeof(Sector));
+                sector.magic = stream->readLE32();
+                sector.chunkIndex = stream->readLE16();
+                sector.chunksCount = stream->readLE16();
+                sector.frameIndex = stream->readLE32();
+                sector.chunkSize = stream->readLE32();
+                sector.width = stream->readLE16();
+                sector.height = stream->readLE16();
+                sector.blocks = stream->readLE16();
+                sector.unk3800 = stream->readLE16();
+                sector.qscale = stream->readLE16();
+                sector.version = stream->readLE16();
+                sector.unk00000000 = stream->readLE32();
 
                 if (sector.magic == MAGIC_STR)
                 {
@@ -928,8 +945,9 @@ struct Video {
                 } else {
                     AudioChunk *chunk = audioChunks + (audioChunksCount++ % MAX_CHUNKS);
 
-                    memcpy(chunk->data, &sector, sizeof(sector)); // audio chunk has no sector header (just XA data)
-                    stream->raw(chunk->data + sizeof(sector), AUDIO_SECTOR_SIZE - sizeof(sector)); // !!! MUST BE 2304 !!! most of CD image tools copy only 2048 per sector, so "clicks" will be there
+                    stream->seek(-(int)sizeof(sector)); // audio chunk has no sector header (just XA data)
+                    stream->raw(chunk->data, AUDIO_SECTOR_SIZE); // !!! MUST BE 2304 !!! most of CD image tools copy only 2048 per sector, so "clicks" will be there
+
                     chunk->size = AUDIO_SECTOR_SIZE;
                     stream->seek(24);
 
@@ -1214,9 +1232,8 @@ struct Video {
             }
 
             VideoChunk *chunk = videoChunks + (curVideoChunk % MAX_CHUNKS);
-
-            BitStream bs(chunk->data + 8, chunk->size - 8); // make bitstream without frame header
-
+           
+            BitStream bs(chunk->data + 8, chunk->size - 8, true); // make bitstream without frame header
             int32 qscale = chunk->qscale;
 
             int32 blocks[64 * 6]; // Cr, Cb, YTL, YTR, YBL, YBR

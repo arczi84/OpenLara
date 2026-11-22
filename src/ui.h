@@ -9,9 +9,9 @@
 #define SUBTITLES_SPEED  0.1f
 #define TEXT_LINE_HEIGHT 18
 
-#if defined(_OS_TNS)
+//#if defined(_OS_TNS)
     #define UI_SHOW_FPS
-#endif
+//#endif
 
 #include "lang.h"
 
@@ -724,7 +724,7 @@ namespace UI {
             textOut(vec2(16, 32), hintStr, aLeft, width - 32, 255, UI::SHADE_GRAY);
         }
 
-    #if defined(_OS_WEB) || defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_MAC) || defined(_OS_RPI)
+    #if defined(_OS_WEB) || defined(_OS_WIN) || defined(_OS_LINUX) || defined(_OS_MAC) || defined(_OS_RPI) || defined(__SDL2__) || defined(__SDL3__)
         if (showHelp) {
             textOut(vec2(32, 32), STR_HELP_TEXT, aLeft, width - 32, 255, UI::SHADE_GRAY);
         } else {
@@ -735,9 +735,14 @@ namespace UI {
     #endif
 
     #ifdef UI_SHOW_FPS
+    #ifdef __AMIGA_OGLES2__
+        if (Core::settings.showFPS) // Options > Detail > Show FPS
+    #endif
+        {
         char buf[256];
         sprintf(buf, "%d", Core::stats.fps);
         textOut(vec2(0, 16), buf, aLeft, width, 255, UI::SHADE_ORANGE);
+        }
     #endif
     }
 
@@ -767,10 +772,11 @@ namespace UI {
     }
 
     void setupInventoryShading(vec3 offset) {
+#ifndef FFP
         Core::mView.identity();
         Core::mProj = GAPI::perspective(1.0f, 1.0f, 1.0f, 2.0f, 0.0f);
         Core::mLightProj = Core::mProj * Core::mView;
-
+#endif
         game->setShader(Core::passCompose, Shader::ENTITY, false, false);
         Core::setMaterial(1.0f, 0.0f, 0.0f, 1.0f);
         Core::setFog(FOG_NONE);

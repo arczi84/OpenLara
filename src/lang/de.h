@@ -40,6 +40,8 @@ const char *STR_DE[] = { ""
     , "Beliebige Taste dr~ucken"
     , "%s - W~ahlen"
     , "%s - Zur~uck"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "OPTIONEN"
     , "INVENTAR"
@@ -70,7 +72,9 @@ const char *STR_DE[] = { ""
     , "Beleuchtung"
     , "Schatten"
     , "Wasser"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereo"
     , "Simple Items"
     , "Resolution"
@@ -349,6 +353,12 @@ const char *STR_DE[] = { ""
     , "Die vergessene Stadt Tinnos"
     , "H~ohle des Meteoriten"
     , "All Hallows"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

@@ -258,6 +258,12 @@ struct Enemy : Character {
         }
 
         vec3  d = waypoint - pos;
+        // A reached (or not yet assigned) waypoint has no horizontal heading.
+        // libnix's atan2f divides 0 by 0 here and poisons the actor's rotation.
+        if (d.x == 0.0f && d.z == 0.0f) {
+            angle.z = lerp(angle.z, 0.0f, 4.0f * Core::deltaTime);
+            return;
+        }
         float a = clampAngle(normalizeAngle(PIH - d.angleY() - angle.y));
 
         w /= 30.0f;
@@ -3512,6 +3518,459 @@ struct Winston : Enemy {
             if (dtex) dtex->bind(sDiffuse);
         } else {
             Enemy::render(frustum, mesh, type, caustics);
+        }
+    }
+};
+
+#define TR2_ENEMY_DIST_WALK 3072.0f
+#define TR2_ENEMY_WAIT      0.01f
+#define TR2_ENEMY_STATES    32
+#define TR2_ENEMY_ITEMS     8
+
+// TR2 people and small animals share one logic: the moves differ only in their state numbers,
+// the way from one state to another comes from the animation data
+struct EnemyTR2 : Human {
+
+    struct Info {
+        float health, damage, reach;
+        int   stop, walk, run;
+        int   attack, attackRun;     // -1 no such move
+        int   deathAnim, deathState;
+        int   joint;                 // gun joint, -1 for hand-to-hand fighters
+    };
+
+    static const Info& getInfo(TR::Entity::Type type) {
+        //                                  hp   dmg  reach  st wk rn atk run danim dst  gun
+        static const Info MASK         = {  25, 30, 450,     3, 1, 2,  7,  9,  20, 12,  -1 };
+        static const Info STICK        = {  27, 25, 400,     1, 2, 10, 9, -1,  26, 11,  -1 };
+        static const Info GUNMAN_1     = {  25, 30, 0,       2, 1, 5,  4, -1,  18, 7,   13 };
+        static const Info GUNMAN_2     = {  20, 30, 0,       1, 2, 3,  5, -1,  19, 7,   13 };
+        static const Info GOON_SHOTGUN = {  45, 40, 0,       1, 3, 4,  7, -1,  32, 11,  13 };
+        static const Info MERCENARY_1  = {  45, 30, 0,       1, 2, 3,  5, -1,  14, 13,  11 };
+        static const Info MERCENARY_2  = {  45, 30, 0,       2, 3, 4,  7, -1,  9,  11,  11 };
+        static const Info MONK         = {  30, 30, 450,     1, 2, 3,  4, 10,  20, 9,   -1 };
+        static const Info DOG          = {  10, 30, 350,     3, 1, 2,  7,  8,  13, 10,  -1 };
+        static const Info RAT          = {  4,  20, 300,     2, 1, 1,  5, -1,  9,  6,   -1 };
+        static const Info FLAME        = {  20, 20, 0,       1, 2, 3,  5, -1,  19, 7,   13 };
+        static const Info SPIDER       = {  5,  25, 300,     1, 2, 3,  4,  5,  4,  7,   -1 };
+        static const Info SPIDER_GIANT = {  40, 100, 400,    1, 2, 3,  4, -1,  2,  7,   -1 };
+        static const Info YETI         = {  30, 100, 500,    2, 3, 1,  4,  6,  31, 8,   -1 };
+        static const Info BIRD_MONSTER = {  200, 150, 600,   1, 2, 2,  4,  6,  20, 9,   -1 };
+        static const Info GUARD_SPEAR  = {  100, 75, 450,    1, 3, 4,  6, 16, -1, -1,   -1 }; // shatter instead of dying
+        static const Info GUARD_SWORD  = {  80, 75, 450,     1, 2, 2,  4, 11, -1, -1,   -1 };
+        static const Info SHARK        = {  30, 200, 500,    0, 1, 2,  3,  4,  4,  5,   -1 };
+        static const Info BARACUDA     = {  12, 100, 350,    1, 2, 3,  4,  5,  6,  6,   -1 };
+        static const Info DIVER        = {  20, 50,  0,      2, 1, 1,  7, -1,  16, 9,   11 };
+        static const Info MORAY_1      = {  5,  50,  900,    2, 2, 2,  1, -1,  3,  3,   -1 };
+        static const Info MORAY_2      = {  5,  50,  900,    2, 2, 2,  1, -1,  2,  3,   -1 };
+        static const Info CROW         = {  15, 20,  350,    7, 1, 1,  3, -1,  1,  4,   -1 };
+        static const Info EAGLE        = {  20, 20,  350,    2, 1, 1,  3, -1,  8,  4,   -1 };
+        static const Info DRAGON       = {  300, 150, 1500,  6, 1, 1,  7, -1,  21, 11,  -1 };
+        static const Info SNOW_RIDER   = {  100, 30, 0,      1, 2, 2,  3, -1,  10, 7,   11 };
+
+        switch (type) {
+            case TR::Entity::ENEMY_GOON_STICK_1     :
+            case TR::Entity::ENEMY_GOON_STICK_2     : return STICK;
+            case TR::Entity::ENEMY_GUNMAN_1         : return GUNMAN_1;
+            case TR::Entity::ENEMY_GUNMAN_2         : return GUNMAN_2;
+            case TR::Entity::ENEMY_GOON_SHOTGUN     : return GOON_SHOTGUN;
+            case TR::Entity::ENEMY_MERCENARY_1      : return MERCENARY_1;
+            case TR::Entity::ENEMY_MERCENARY_2      :
+            case TR::Entity::ENEMY_MERCENARY_3      : return MERCENARY_2;
+            case TR::Entity::ENEMY_MONK_1           :
+            case TR::Entity::ENEMY_MONK_2           : return MONK;
+            case TR::Entity::ENEMY_DOG              : return DOG;
+            case TR::Entity::ENEMY_RAT              : return RAT;
+            case TR::Entity::ENEMY_SHARK            : return SHARK;
+            case TR::Entity::ENEMY_BARACUDA         : return BARACUDA;
+            case TR::Entity::ENEMY_DIVER            : return DIVER;
+            case TR::Entity::ENEMY_MORAY_1          : return MORAY_1;
+            case TR::Entity::ENEMY_MORAY_2          : return MORAY_2;
+            case TR::Entity::ENEMY_CROW             : return CROW;
+            case TR::Entity::ENEMY_EAGLE            : return EAGLE;
+            case TR::Entity::ENEMY_DRAGON_FRONT     : return DRAGON;
+            case TR::Entity::ENEMY_MERCENARY_SNOWMOBILE : return SNOW_RIDER;
+            case TR::Entity::ENEMY_GOON_FLAME       : return FLAME;
+            case TR::Entity::ENEMY_SPIDER           : return SPIDER;
+            case TR::Entity::ENEMY_SPIDER_GIANT     : return SPIDER_GIANT;
+            case TR::Entity::ENEMY_YETI             : return YETI;
+            case TR::Entity::ENEMY_BIRD_MONSTER     : return BIRD_MONSTER;
+            case TR::Entity::ENEMY_GUARD_SPEAR      :
+            case TR::Entity::ENEMY_GUARD_SPEAR_STATUE : return GUARD_SPEAR;
+            case TR::Entity::ENEMY_GUARD_SWORD      :
+            case TR::Entity::ENEMY_GUARD_SWORD_STATUE : return GUARD_SWORD;
+            default                                 : return MASK;
+        }
+    }
+
+    const Info &info;
+    uint32 states[TR2_ENEMY_STATES];   // next states of every state
+    bool   attackDone;
+    int16  carried[TR2_ENEMY_ITEMS];   // pickups placed at this enemy, it drops them when it dies
+    int    carriedCount;
+
+    EnemyTR2(IGame *game, int entity) : Human(game, entity, getInfo(game->getLevel()->entities[entity].type).health),
+                                        info(getInfo(game->getLevel()->entities[entity].type)), attackDone(false), carriedCount(0) {
+        jointChest = jointHead = -1;
+        jointGun   = max(0, info.joint);
+        dropHeight = -768;
+
+        const TR::Model *model = getModel();
+        int animEnd = level->animsCount;
+        for (int i = 0; i < level->modelsCount; i++)
+            if (level->models[i].animation != 0xFFFF && level->models[i].animation > model->animation)
+                animEnd = min(animEnd, int(level->models[i].animation));
+
+        memset(states, 0, sizeof(states));
+        int animStop = -1;
+        for (int i = model->animation; i < animEnd; i++) {
+            TR::Animation &a = level->anims[i];
+            if (a.state >= TR2_ENEMY_STATES) continue;
+            for (int j = 0; j < a.scCount; j++) {
+                int st = level->states[a.scOffset + j].state;
+                if (st < TR2_ENEMY_STATES) states[a.state] |= 1 << st;
+            }
+            int next = level->anims[a.nextAnimation].state;
+            if (next != a.state && next < TR2_ENEMY_STATES)
+                states[a.state] |= 1 << next;
+            if (animStop == -1 && a.state == info.stop && a.scCount > 0)
+                animStop = i - model->animation;
+        }
+        if (animStop != -1)
+            animation.setAnim(animStop);
+    }
+
+    virtual bool carry(int entity) {
+        if (carriedCount == TR2_ENEMY_ITEMS)
+            return false;
+        carried[carriedCount++] = entity;
+        ((Controller*)level->entities[entity].controller)->flags.invisible = true;
+        return true;
+    }
+
+    virtual void onDead() {
+        TR::Level::FloorInfo finfo;
+        getFloorInfo(getRoomIndex(), pos, finfo);
+        for (int i = 0; i < carriedCount; i++) {
+            Controller *c = (Controller*)level->entities[carried[i]].controller;
+            if (!c) continue;
+            c->pos       = vec3(pos.x, finfo.floor, pos.z);
+            c->roomIndex = getRoomIndex();
+            c->flags.invisible = false;
+            c->updateLights(false);
+        }
+        carriedCount = 0;
+    }
+
+    // the first state of the shortest way to goal
+    int stepTo(int goal) {
+        if (state == goal || state >= TR2_ENEMY_STATES)
+            return state;
+
+        int first[TR2_ENEMY_STATES];
+        memset(first, -1, sizeof(first));
+        int queue[TR2_ENEMY_STATES], head = 0, tail = 0;
+        queue[tail++] = state;
+        first[state]  = state;
+
+        while (head < tail) {
+            int cur = queue[head++];
+            for (int i = 0; i < TR2_ENEMY_STATES; i++)
+                if ((states[cur] & (1 << i)) && first[i] == -1) {
+                    first[i] = (cur == state) ? i : first[cur];
+                    if (i == goal)
+                        return first[i];
+                    queue[tail++] = i;
+                }
+        }
+        return state;
+    }
+
+    bool isAttacking() {
+        return state == info.attack || state == info.attackRun;
+    }
+
+    void attack() {
+        if (attackDone || animation.frameIndex < animation.framesCount / 2)
+            return;
+        attackDone = true;
+        if (info.joint >= 0) {
+            doShot(info.damage, vec3(0.0f, 270.0f, 40.0f));
+        } else if (targetDist < info.reach && targetCanAttack) {
+            bite(-1, vec3(0.0f), info.damage);
+            game->addEntity(TR::Entity::BLOOD, target->getRoomIndex(), target->getJoint(rand() % target->getModel()->mCount).pos);
+            game->playSound(TR::SND_HIT, target->pos, Sound::PAN);
+        }
+    }
+
+    virtual int getStateGround() {
+        if (!think(false))
+            return state;
+
+        if (isAttacking()) {
+            attack();
+            return state;
+        }
+        attackDone = false;
+
+        if (mood == MOOD_SLEEP) {
+            if (state == info.stop && randf() < TR2_ENEMY_WAIT) return info.walk;
+            if (state == info.walk && randf() > TR2_ENEMY_WAIT) return state;
+            return stepTo(info.stop);
+        }
+
+        if (mood != MOOD_ESCAPE) {
+            if (info.joint >= 0) {
+                if (targetIsVisible(HUMAN_DIST_SHOT))
+                    return stepTo(info.attack);
+            } else if (targetCanAttack) {
+                if (targetDist < info.reach)
+                    return stepTo(info.attack);
+                if (info.attackRun != -1 && state == info.run && targetDist < info.reach * 2.0f)
+                    return info.attackRun;
+            }
+            if (targetInView && targetDist < TR2_ENEMY_DIST_WALK)
+                return stepTo(info.walk);
+        }
+        return stepTo(info.run);
+    }
+
+    virtual int getStateDeath() {
+        if (info.deathAnim == -1)
+            return state;
+        return state == info.deathState ? state : animation.setAnim(info.deathAnim);
+    }
+
+    virtual void update() {
+        bool exploded = explodeMask != 0;
+
+        if (info.deathAnim == -1 && health <= 0.0f && !exploded)
+            explode(0xffffffff, 0.0f);
+
+        Enemy::update();
+
+        if (exploded && !explodeMask) {
+            deactivate(true);
+            flags.invisible = true;
+        }
+    }
+
+    virtual void updatePosition() {
+        turn(state == info.run || state == info.walk, state == info.run ? HUMAN_TURN_FAST : HUMAN_TURN_SLOW);
+
+        if (state == info.deathState) {
+            animation.overrideMask = 0;
+            return;
+        }
+
+        if (target && mood != MOOD_SLEEP && (isAttacking() || state == info.stop)) {
+            float w = HUMAN_TURN_SLOW * Core::deltaTime;
+            rotateY(clamp(targetAngle, -w, w));
+        }
+
+        Enemy::updatePosition();
+    }
+};
+
+#define TR2_LIFT_SPEED      512.0f
+#define TR2_FLY_HEIGHT      765.0f
+
+struct EnemyTR2Swim : EnemyTR2 {
+
+    EnemyTR2Swim(IGame *game, int entity) : EnemyTR2(game, entity) {
+        stand      = STAND_UNDERWATER;
+        flying     = true;
+        stepHeight = 20 * 1024;
+        dropHeight = -20 * 1024;
+        updateZone();
+    }
+
+    virtual int getStateUnderwater() {
+        return getStateGround();
+    }
+
+    virtual void updatePosition() {
+        turn(state == info.run || state == info.walk, state == info.run ? HUMAN_TURN_FAST : HUMAN_TURN_SLOW);
+        angle.z = 0.0f;
+
+        if (state == info.deathState) {
+            animation.overrideMask = 0;
+            return;
+        }
+
+        lift(waypoint.y - pos.y, TR2_LIFT_SPEED);
+
+        int16 rIndex = getRoomIndex();
+        TR::Room::Sector *sector = level->getWaterLevelSector(rIndex, pos);
+        if (sector) {
+            float waterLevel = float(sector->ceiling * 256) + 128;
+            if (pos.y < waterLevel)
+                pos.y = waterLevel;
+        }
+
+        Enemy::updatePosition();
+    }
+};
+
+struct EnemyTR2Bird : EnemyTR2 {
+
+    enum { STATE_LAND = 5 };
+
+    EnemyTR2Bird(IGame *game, int entity) : EnemyTR2(game, entity) {
+        stand      = STAND_AIR;
+        flying     = true;
+        stepHeight = 20 * 1024;
+        dropHeight = -20 * 1024;
+    }
+
+    virtual int getStateAir() {
+        if (!think(false))
+            return state;
+
+        if (state == info.stop)
+            return mood == MOOD_SLEEP ? state : info.walk;
+
+        if (isAttacking()) {
+            attack();
+            return attackDone ? 6 : state;
+        }
+        attackDone = false;
+
+        if (targetDist < info.reach && targetCanAttack)
+            return info.attack;
+        return stepTo(info.walk);
+    }
+
+    virtual int getStateDeath() {
+        if (state == STATE_LAND)
+            return state;
+        if (state != info.deathState)
+            return animation.setAnim(info.deathAnim);
+
+        TR::Level::FloorInfo finfo;
+        getFloorInfo(getRoomIndex(), pos, finfo);
+        if (pos.y < finfo.floor)
+            return state;
+        pos.y = finfo.floor;
+        velocity = vec3(0.0f);
+        return STATE_LAND;
+    }
+
+    virtual void updatePosition() {
+        turn(state == info.walk || isAttacking(), HUMAN_TURN_FAST);
+
+        if (!target)
+            target = (Character*)game->getLara(pos);
+
+        if (health > 0.0f && state != info.stop)
+            lift(waypoint.y - TR2_FLY_HEIGHT - pos.y, TR2_LIFT_SPEED);
+
+        Enemy::updatePosition();
+    }
+};
+
+#define DRAGON_SPAWN_TIME   4.0f
+#define DRAGON_BLAST_TIME   0.3f
+
+struct DragonBack;
+
+// falls down after the fight and waits for the dagger in its back to be pulled out
+struct Dragon : EnemyTR2 {
+    bool pulled;
+
+    Dragon(IGame *game, int entity) : EnemyTR2(game, entity), pulled(false) {
+        radius = 500;
+    }
+
+    virtual bool canPullDagger() {
+        return health <= 0.0f && !pulled;
+    }
+
+    virtual void pullDagger() {
+        pulled = true;
+        for (int i = 0; i < level->entitiesCount; i++) {
+            TR::Entity &e = level->entities[i];
+            Controller *c = (Controller*)e.controller;
+            if (!c) continue;
+            if (e.type == TR::Entity::ENEMY_DRAGON_BACK)
+                c->explode(0xffffffff, 0.0f);
+            if (e.type == TR::Entity::TRAP_CEILING_1 || e.isDoor()) {
+                c->flags.active = TR::ACTIVE;
+                c->activate();
+            }
+        }
+        explode(0xffffffff, 0.0f);
+    }
+};
+
+// the dragon is cut in two models, the back half repeats the moves of the front one
+struct DragonBack : Enemy {
+    Controller *front;
+
+    DragonBack(IGame *game, int entity) : Enemy(game, entity, 1000, 10, 0.0f, 0.0f), front(NULL) {}
+
+    virtual void hit(float damage, Controller *enemy = NULL, TR::HitType hitType = TR::HIT_DEFAULT) {
+        if (front)
+            front->hit(damage, enemy, hitType);
+    }
+
+    virtual void update() {
+        if (explodeMask) {
+            updateExplosion();
+            if (!explodeMask) {
+                deactivate(true);
+                flags.invisible = true;
+            }
+            return;
+        }
+
+        if (!front) {
+            for (int i = 0; i < level->entitiesCount; i++) {
+                TR::Entity &e = level->entities[i];
+                if (e.type == TR::Entity::ENEMY_DRAGON_FRONT && e.controller)
+                    front = (Controller*)e.controller;
+            }
+            if (!front)
+                return;
+        }
+
+        pos   = front->pos;
+        angle = front->angle;
+        roomIndex = front->roomIndex;
+        if (animation.index != front->animation.index)
+            animation.setAnim(front->animation.index);
+        animation.time = front->animation.time;
+        animation.updateInfo();
+        if (((Character*)front)->health <= 0.0f)
+            health = 0.0f;
+        updateLights();
+    }
+};
+
+// Marco Bartoli turns into the dragon when Lara enters the hall
+struct DragonSpawn : Controller {
+    float timer, blast;
+    bool  spawned;
+
+    DragonSpawn(IGame *game, int entity) : Controller(game, entity), timer(0.0f), blast(0.0f), spawned(false) {}
+
+    virtual void update() {
+        if (spawned)
+            return;
+
+        timer += Core::deltaTime;
+        blast += Core::deltaTime;
+        if (blast >= DRAGON_BLAST_TIME) {
+            blast = 0.0f;
+            vec3 p = pos + vec3(randf() * 1024.0f - 512.0f, -randf() * 1536.0f, randf() * 1024.0f - 512.0f);
+            game->addEntity(TR::Entity::EXPLOSION, getRoomIndex(), p);
+        }
+
+        if (timer >= DRAGON_SPAWN_TIME) {
+            spawned = true;
+            game->addEntity(TR::Entity::ENEMY_DRAGON_FRONT, getRoomIndex(), pos, angle.y);
+            game->addEntity(TR::Entity::ENEMY_DRAGON_BACK,  getRoomIndex(), pos, angle.y);
+            deactivate(true);
         }
     }
 };

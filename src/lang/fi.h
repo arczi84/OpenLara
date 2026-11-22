@@ -40,6 +40,8 @@ const char *STR_FI[] = { "Suomi"
     , "Paina Mit~a tahansa"
     , "%s - Valitse"
     , "%s - Takaisin"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "Asetukset"
     , "Tavaraluettelo"
@@ -70,7 +72,9 @@ const char *STR_FI[] = { "Suomi"
     , "Valaistus"
     , "Varjot"
     , "Vesi"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereo"
     , "Litte~at Esineet"
     , "Resolution"
@@ -350,6 +354,12 @@ const char *STR_FI[] = { "Suomi"
     , "Tinnosin Kadonnut Kaupunki"
     , "Meteoriittiluola"
     , "All Hallows"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif

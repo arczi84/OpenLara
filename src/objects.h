@@ -71,6 +71,9 @@ struct KeyItemInv : Controller {
 
 #define DART_DAMAGE 50
 
+#define TR2_SND_DART_SHOOT 254
+#define TR2_SND_DART_HIT   258
+
 struct Dart : Controller {
     vec3 velocity;
     vec3 dir;
@@ -95,6 +98,8 @@ struct Dart : Controller {
         getFloorInfo(getRoomIndex(), pos, info);
         if (pos.y > info.floor || pos.y < info.ceiling || !insideRoom(pos, getRoomIndex())) {
             game->addEntity(TR::Entity::RICOCHET, getRoomIndex(), pos - dir * 64.0f); // with wall offset
+            if (!(level->version & TR::VER_TR1))
+                game->playSound(TR2_SND_DART_HIT, pos, Sound::PAN);
             game->removeEntity(this);
         }
     }
@@ -120,7 +125,7 @@ struct TrapDartEmitter : Controller {
             game->addEntity(TR::Entity::DART, getRoomIndex(), p, angle.y);
             if (level->extra.smoke != -1)
                 game->addEntity(TR::Entity::SMOKE, getRoomIndex(), p);
-            game->playSound(TR::SND_DART, p, Sound::PAN);
+            game->playSound((level->version & TR::VER_TR1) ? TR::SND_DART : TR2_SND_DART_SHOOT, p, Sound::PAN); // TR2 has no 151 (TR2Main traps.cpp: 254)
         }
 
         updateAnimation(true);
@@ -903,8 +908,24 @@ struct Crystal : Controller {
 
     void bake() {
         ASSERT(!environment);
+#ifdef __AMIGA_MINIGL__
+        // PiStorm3D has no off-screen target to bake into.  render() already
+        // provides the white texture fallback when environment stays NULL.
+        return;
+#endif
 
-        uint32 opt = OPT_CUBEMAP | OPT_TARGET;
+        #ifdef FFP
+            uint32 opt;
+            if (Core::support.texCUBE) {
+                opt = OPT_CUBEMAP | OPT_TARGET;
+            }
+            else {
+                opt = OPT_SPHERE_MAP | OPT_TARGET;
+            }
+#else
+            uint32 opt = OPT_CUBEMAP | OPT_TARGET;
+#endif
+
         #ifdef USE_CUBEMAP_MIPS
             opt |= OPT_MIPMAPS;
         #endif
@@ -1688,14 +1709,83 @@ struct Explosion : Sprite {
 };
 
 
-struct BreakableWindow : Controller {
+// TR2 window: solid until smashed; mesh 0 is the pane, the others the broken frame.
+// Gunfire smashes both kinds (Lara::doShot), WINDOW_1 also breaks when Lara or the
+// boat runs into it (TR2 smashable control: speed along the window normal >= 50)
+#define WINDOW_SMASH_SPEED 50.0f
 
-    BreakableWindow(IGame *game, int entity) : Controller(game, entity) {
+struct BreakableWindow : Controller {
+    bool smashed;
+
+    BreakableWindow(IGame *game, int entity) : Controller(game, entity), smashed(false) {
         initMeshOverrides();
         layers[0].mask = 0x00000001;
+        if (getEntity().type == TR::Entity::WINDOW_1)
+            activate();
+    }
+
+    virtual bool isCollider() {
+        return !smashed;
+    }
+
+    void smash() {
+        if (smashed) return;
+        smashed = true;
+        layers[0].mask = 0xFFFFFFFE;
+        deactivate(true);
+    }
+
+    virtual void update() {
+        if (smashed) return;
+        Character *lara = (Character*)game->getLara(pos);
+        if (!lara || !checkRange(lara, 1536.0f)) return;
+        vec3 v = lara->velocity;
+        vec3 n = getDir();
+        Box box = getBoundingBoxLocal();
+        box.expand(vec3(160.0f, 0.0f, 160.0f));
+        box.max.y += 768.0f;
+        vec3 p = (lara->pos - vec3(0.0f, 128.0f, 0.0f) - pos).rotateY(angle.y);
+        if (box.contains(p) && fabsf(v.x * n.x + v.z * n.z) >= WINDOW_SMASH_SPEED * 0.5f)
+            smash();
     }
 };
 
+
+// TR2 boat left alone floats on its room's water, so it rises and sinks with a
+// floodgate (flipmap) as in TR2; Lara drives it in Lara::updateVehicle
+#define BOAT_LIFT         48.0f // the hull floor is under the water line: keep it above the surface
+#define BOAT_FLOAT_SPEED  16.0f
+#define BOAT_MIN_DEPTH    64.0f // shallower water is ground for the boat
+
+struct VehicleBoat : Controller {
+    bool ridden;
+
+    VehicleBoat(IGame *game, int entity) : Controller(game, entity), ridden(false) {
+        activate();
+    }
+
+    virtual void update() {
+        if (!ridden) {
+            float wLevel, wDepth;
+            level->getWaterInfo(getRoomIndex(), pos, wLevel, wDepth);
+            float target;
+            if ((wLevel != 0.0f || wDepth != 0.0f) && wLevel - BOAT_LIFT < pos.y + 4096.0f) {
+                target = wLevel - BOAT_LIFT;
+            } else {
+                TR::Level::FloorInfo info;
+                getFloorInfo(getRoomIndex(), pos, info);
+                target = info.floor;
+            }
+            float d = target - pos.y;
+            if (fabsf(d) > 0.5f) {
+                float s = BOAT_FLOAT_SPEED * Core::deltaTime * 30.0f;
+                pos.y += clamp(d, -s, s);
+                updateRoom();
+            }
+        }
+        Controller::update();
+    }
+};
 
 #define HELICOPTER_SPEED 3000
 #define HELICOPTER_RANGE (1024 * 30)
@@ -1835,6 +1925,210 @@ struct Bullet : Controller {
             game->playSound(lara->stand == Character::STAND_UNDERWATER ? TR::SND_HIT_UNDERWATER : TR::SND_HIT, lara->pos, Sound::PAN);
 
         game->removeEntity(this);
+    }
+};
+
+#define TR2_FRAME          (Core::deltaTime * 30.0f)
+#define LIFT_WAIT           3.0f
+#define LIFT_SPEED          16.0f
+#define LIFT_TRAVEL         5632.0f
+#define SPIKES_SPEED        8.0f
+#define ICICLE_DAMAGE       200.0f
+
+// a wire with a handle, Lara rides it (see Lara::updateZipline)
+struct ZiplineHandle : Controller {
+    vec3 home;
+
+    ZiplineHandle(IGame *game, int entity) : Controller(game, entity), home(pos) {}
+
+    void goHome() {
+        pos = home;
+        animation.setAnim(0);
+    }
+
+    virtual void update() {}
+};
+
+struct Lift : Controller {
+    enum {
+        STATE_CLOSED,
+        STATE_OPEN,
+    };
+
+    float start, wait;
+
+    Lift(IGame *game, int entity) : Controller(game, entity), start(pos.y), wait(0.0f) {
+        activate();
+    }
+
+    virtual void update() {
+        updateAnimation(true);
+        float target = isActive(false) ? start + LIFT_TRAVEL : start;
+        if (fabsf(pos.y - target) > LIFT_SPEED) {
+            if (wait < LIFT_WAIT) {
+                animation.setState(STATE_OPEN);
+                wait += Core::deltaTime;
+            } else {
+                animation.setState(STATE_CLOSED);
+                pos.y += sign(target - pos.y) * LIFT_SPEED * TR2_FRAME;
+                updateRoom();
+            }
+        } else {
+            animation.setState(STATE_OPEN);
+            wait = 0.0f;
+        }
+    }
+
+    // inside the cage, on its roof or under it
+    virtual void liftFloor(float x, float y, float z, float &floor, float &ceiling) {
+        if (fabsf(x - pos.x) >= 1024.0f || fabsf(z - pos.z) >= 1024.0f)
+            return;
+        float top = pos.y - 1280.0f;
+        if (y >= top - 128.0f && y <= pos.y + 128.0f) {
+            floor   = min(floor, pos.y);
+            ceiling = max(ceiling, top);
+        } else if (y < top) {
+            floor   = min(floor, top - 256.0f);
+        } else {
+            ceiling = max(ceiling, pos.y + 256.0f);
+        }
+    }
+};
+
+struct Jumppad : Controller {
+    enum {
+        STATE_READY,
+        STATE_JUMP,
+    };
+
+    Jumppad(IGame *game, int entity) : Controller(game, entity) {
+        activate();
+    }
+
+    virtual void update() {
+        updateAnimation(true);
+        if (state != STATE_READY)
+            return;
+        Controller *lara = game->getLara(pos);
+        if (int(lara->pos.y) == int(pos.y) && int(lara->pos.x) / 1024 == int(pos.x) / 1024 && int(lara->pos.z) / 1024 == int(pos.z) / 1024) {
+            lara->springboard();
+            animation.setState(STATE_JUMP);
+        }
+    }
+};
+
+// the small TR2 traps: an idle and an active state, they hurt while touching Lara
+struct TrapTR2 : Controller {
+    enum Move { MOVE_NONE, MOVE_GROUND, MOVE_WALL, MOVE_CEILING, MOVE_FALL };
+
+    int   stateIdle, stateActive;
+    float damage;     // per second
+    Move  move;
+    float fall;
+    bool  stopped;
+
+    TrapTR2(IGame *game, int entity) : Controller(game, entity), fall(0.0f), stopped(false) {
+        stateIdle   = 0;
+        stateActive = 1;
+        damage      = 300.0f;
+        move        = MOVE_NONE;
+        switch (getEntity().type) {
+            case TR::Entity::TRAP_BLADE_WALL    :
+            case TR::Entity::TRAP_BLADE_STATUE  : stateIdle = 1; stateActive = 2; break;
+            case TR::Entity::TRAP_SPINDLE       : stateIdle = 1; stateActive = 2; move = MOVE_GROUND; break;
+            case TR::Entity::TRAP_SPIKES_WALL   : move = MOVE_WALL; damage = 600.0f; break;
+            case TR::Entity::TRAP_SPIKES_CEILING: move = MOVE_CEILING; damage = 600.0f; break;
+            case TR::Entity::TRAP_ICICLES       : stateIdle = 1; stateActive = 2; move = MOVE_FALL; damage = 0.0f; break;
+            case TR::Entity::ROLLING_DRUMS      : stateIdle = 2; stateActive = 1; move = MOVE_GROUND; damage = 600.0f; break;
+            case TR::Entity::TRAP_SWING_BAG     :
+            case TR::Entity::TRAP_SWING_BOX     : damage = 200.0f; break;
+            case TR::Entity::HOOK               :
+            case TR::Entity::SAW                :
+            case TR::Entity::PROPELLER_PLANE    :
+            case TR::Entity::PROPELLER_WATER    :
+            case TR::Entity::PROPELLER_AIR      : stateIdle = 1; stateActive = 0; break;
+            default : ;
+        }
+    }
+
+    bool wallAhead(const vec3 &dir) {
+        vec3 p = pos + dir * 512.0f;
+        TR::Level::FloorInfo info;
+        int16 room = getRoomIndex();
+        level->getSector(room, p);
+        getFloorInfo(room, p, info);
+        return info.floor < pos.y - 128.0f || info.ceiling > pos.y - 128.0f;
+    }
+
+    virtual void update() {
+        updateAnimation(true);
+
+        bool active = isActive();
+        animation.setState(active ? stateActive : stateIdle);
+
+        vec3  dir   = getDir();
+        float frame = TR2_FRAME;
+
+        switch (move) {
+            case MOVE_GROUND :
+                if (active && state == stateActive) {
+                    if (wallAhead(dir)) {
+                        animation.setState(stateIdle);
+                        if (getEntity().type == TR::Entity::TRAP_SPINDLE)
+                            angle.y += PI;
+                        else
+                            deactivate(true);
+                    } else {
+                        pos += dir * animation.getSpeed() * frame;
+                        updateRoom();
+                    }
+                }
+                break;
+            case MOVE_WALL :
+                if (active && !stopped) {
+                    if (wallAhead(dir))
+                        stopped = true;
+                    else {
+                        pos += dir * SPIKES_SPEED * frame;
+                        updateRoom();
+                    }
+                }
+                break;
+            case MOVE_CEILING :
+                if (active && !stopped) {
+                    TR::Level::FloorInfo info;
+                    getFloorInfo(getRoomIndex(), pos, info);
+                    if (pos.y >= info.floor - 256.0f)
+                        stopped = true;
+                    else
+                        pos.y += SPIKES_SPEED * frame;
+                }
+                break;
+            case MOVE_FALL :
+                if (state == stateActive) {
+                    TR::Level::FloorInfo info;
+                    getFloorInfo(getRoomIndex(), pos, info);
+                    fall += GRAVITY * frame;
+                    pos.y += fall * frame;
+                    Controller *lara = game->getLara(pos);
+                    if (checkRange(lara, 1024.0f) && collide(lara)) {
+                        lara->hit(ICICLE_DAMAGE, this);
+                        animation.setState(3);
+                    }
+                    if (pos.y >= info.floor) {
+                        pos.y = info.floor;
+                        animation.setState(3);
+                    }
+                }
+                break;
+            default : ;
+        }
+
+        if (damage > 0.0f && active) {
+            Controller *lara = game->getLara(pos);
+            if (checkRange(lara, 2048.0f) && collide(lara))
+                lara->hit(damage * Core::deltaTime, this);
+        }
     }
 };
 

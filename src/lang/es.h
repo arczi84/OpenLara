@@ -40,6 +40,8 @@ const char *STR_ES[] = { ""
     , "Pulsa cualquier tecla"
     , "%s - Seleccionar"
     , "%s - Volver"
+    , "Windowed"
+    , "Fullscreen"
 // inventory pages
     , "OPCIONES"
     , "INVENTARIO"
@@ -70,7 +72,9 @@ const char *STR_ES[] = { ""
     , "Iluminaci)on"
     , "Sombras"
     , "Agua"
+    , "Fog"
     , "VSync"
+    , "Mode"
     , "Stereo"
     , "Objetos simples"
     , "Resolution"
@@ -350,6 +354,12 @@ const char *STR_ES[] = { ""
     , "La Ciudad perdida de Tinnos"
     , "Caverna del meteorito"
     , "Todos los santos"
+#ifdef __AMIGA_OGLES2__
+    , "MSAA"
+#endif
+#ifdef __AMIGA_OGLES2__
+    , "Show FPS"
+#endif
 };
 
 #endif
