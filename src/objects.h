@@ -1986,17 +1986,53 @@ struct Bullet : Controller {
 #define ICICLE_DAMAGE       200.0f
 
 // a wire with a handle, Lara rides it (see Lara::updateZipline)
-struct ZiplineHandle : Controller {
-    vec3 home;
+#define ZIPLINE_HANDLE_SPEED_MAX 100.0f
+#define ZIPLINE_HANDLE_ACCEL     5.0f
 
-    ZiplineHandle(IGame *game, int entity) : Controller(game, entity), home(pos) {}
+struct ZiplineHandle : Controller {
+    vec3  home;
+    int16 homeRoom;
+    float speed;   // > 0: sliding on alone after Lara let go (TRX zipline.c)
+
+    ZiplineHandle(IGame *game, int entity) : Controller(game, entity), home(pos), homeRoom(getRoomIndex()), speed(0.0f) {}
 
     void goHome() {
-        pos = home;
+        pos       = home;
+        roomIndex = homeRoom;
+        speed     = 0.0f;
         animation.setAnim(0);
     }
 
-    virtual void update() {}
+    // Lara let go: the handle runs on to the end of the wire, then it is back at the start for another ride
+    void slideOn(float fromSpeed) {
+        speed = max(fromSpeed, 1.0f);
+        activate();
+    }
+
+    virtual void update() {
+        if (speed <= 0.0f) {
+            deactivate();
+            return;
+        }
+        float frame = Core::deltaTime * 30.0f;
+        vec3  dir   = getDir();
+        speed = min(speed + ZIPLINE_HANDLE_ACCEL * frame, ZIPLINE_HANDLE_SPEED_MAX);
+        pos += dir * speed * frame;
+        pos.y += speed * 0.25f * frame;
+        updateRoom();
+
+        vec3 p = pos + dir * 1024.0f;
+        p.y += 64.0f;
+        int16 room = getRoomIndex();
+        level->getSector(room, p);
+        TR::Level::FloorInfo info;
+        getFloorInfo(room, p, info);
+        if (info.floor <= p.y + 256.0f || info.ceiling >= p.y - 256.0f) { // the end of the wire
+            game->playSound(281, pos, Sound::PAN); // TR2 zipline_stop
+            goHome();
+            deactivate(true);
+        }
+    }
 };
 
 struct Lift : Controller {

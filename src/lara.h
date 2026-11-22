@@ -2772,7 +2772,7 @@ struct Lara : Character {
 
     void ziplineRelease() {
         vec3 dir = getDir();
-        zipline->deactivate(true);
+        zipline->slideOn(ziplineSpeed); // it runs on to the end of the wire and goes back to its start, as in TR2
         zipline = NULL;
         velocity = vec3(dir.x * ziplineSpeed, 0.0f, dir.z * ziplineSpeed);
         stand = STAND_AIR;
@@ -2982,6 +2982,12 @@ struct Lara : Character {
 
     // does the hull at p (yaw) overlap a collidable static mesh (Bartoli mooring poles)
     bool boatHitsStatic(const vec3 &p, float yaw) {
+        return boatStaticDepth(p, yaw) > 0.0f;
+    }
+
+    // how deep the hull at p (yaw) sits in the deepest collidable static mesh, 0 = free
+    float boatStaticDepth(const vec3 &p, float yaw) {
+        float depth = 0.0f;
         float s = sinf(yaw), co = cosf(yaw);
         for (int r = 0; r < level->roomsCount; r++) {
             const TR::Room &room = level->rooms[r];
@@ -3005,16 +3011,18 @@ struct Lara : Character {
                 float lx = c.x * co - c.z * s;   // side
                 float lz = c.x * s  + c.z * co;  // front
                 float ex = fabsf(co) * hx + fabsf(s) * hz, ez = fabsf(s) * hx + fabsf(co) * hz; // the box in boat space
-                if (fabsf(lx) < BOAT_SIDE + ex && fabsf(lz) < BOAT_FRONT + ez)
-                    return true;
+                float dx = BOAT_SIDE + ex - fabsf(lx), dz = BOAT_FRONT + ez - fabsf(lz);
+                if (dx > 0.0f && dz > 0.0f)
+                    depth = max(depth, min(dx, dz));
             }
         }
-        return false;
+        return depth;
     }
 
     // a hull corner (side, front in boat space) may climb at most BOAT_STEP a frame, as in TR2
     bool boatCornersFree(const vec3 &from, const vec3 &to, float yaw) {
-        if (boatHitsStatic(to, yaw) && !boatHitsStatic(from, yaw))
+        float d = boatStaticDepth(to, yaw);
+        if (d > 0.0f && d >= boatStaticDepth(from, yaw)) // into a pole, or deeper: turning in place had put the hull into one
             return false;
         static const float c[5][2] = { { -BOAT_SIDE, BOAT_FRONT }, { BOAT_SIDE, BOAT_FRONT }, { -BOAT_SIDE, -BOAT_FRONT }, { BOAT_SIDE, -BOAT_FRONT }, { 0.0f, 0.0f } };
         float s = sinf(yaw), co = cosf(yaw);
@@ -3054,8 +3062,14 @@ struct Lara : Character {
         if (speed != 0.0f || turning) {
             float w = BOAT_TURN * Core::deltaTime * clamp(fabsf(speed) / BOAT_SPEED_MIN, 0.4f, 1.0f);
             if ((input & BACK) && speed < 0.0f) w = -w; // reversing steers like TR2
+            float oldYaw = angle.y;
             if (input & LEFT)  angle.y = clampAngle(angle.y - w);
             if (input & RIGHT) angle.y = clampAngle(angle.y + w);
+            if (angle.y != oldYaw) { // the hull must not turn into a pole either
+                float d = boatStaticDepth(pos, angle.y);
+                if (d > 0.0f && d > boatStaticDepth(pos, oldYaw))
+                    angle.y = oldYaw;
+            }
         }
 
         vec3 dir = vec3(0.0f, angle.y);
@@ -3250,7 +3264,7 @@ struct Lara : Character {
 
     bool ladderCanDown(float y) {
         vec3 p = vec3(pos.x, y - 512.0f, pos.z);
-        return ladderColumn(p).floor >= y + 256.0f && ladderGrip(y - 512.0f);
+        return ladderColumn(p).floor >= y + 256.0f && ladderGrip(y - 512.0f) && ladderFeet(y + 256.0f);
     }
 
     bool ladderCanSide(float side) {
@@ -3260,6 +3274,45 @@ struct Lara : Character {
         p.y = pos.y - 512.0f;
         TR::Level::FloorInfo info = ladderColumn(p);
         return info.floor >= pos.y && info.ceiling <= pos.y - LARA_HEIGHT && ladderWall(p.y, d);
+    }
+
+    // TR2 tests the wall over Lara's whole body: the feet need it too (LaraTestClimbPos)
+    bool ladderFeet(float y) { // y is Lara's height
+        return ladderGrip(y - 128.0f);
+    }
+
+    // the wall ends under the feet but still holds the hands: hang on it by the hands like TR2 (legs dangling)
+    int ladderToHang() {
+        pos.y += LARA_HANG_OFFSET - 768.0f; // keep the hands where they were
+        velocity    = vec3(0.0f);
+        speed       = 0.0f;
+        stand       = STAND_HANG;
+        ladderPhase = -1;
+        return animation.setAnim(ANIM_HANG, -21); // the hanging loop, as when she comes to rest at a ledge
+    }
+
+    // is there a ledge (floor at the hands) in front of hands at height handsY, side units to the right
+    bool ledgeAt(float handsY, float side) {
+        vec3 dir = getDir();
+        vec3 p   = pos + vec3(dir.z, 0.0f, -dir.x) * side + dir * (LARA_RADIUS + 32.0f);
+        p.y = handsY;
+        TR::Level::FloorInfo info = ladderColumn(p);
+        return fabsf(info.floor - handsY) <= 64.0f;
+    }
+
+    // TR2: hanging by the hands on a climbable wall, with no ledge to hold (legs dangling)
+    bool isLadderHang() {
+        if (!hasLadders() || stand != STAND_HANG || (state != STATE_HANG && state != STATE_HANG_LEFT && state != STATE_HANG_RIGHT))
+            return false;
+        float hands = pos.y - LARA_HANG_OFFSET;
+        return !ledgeAt(hands, 0.0f) && ladderGrip(hands + 64.0f);
+    }
+
+    // can the hands go on sideways along the wall (or onto a ledge) while hanging on it
+    bool ladderHangSide(float side) {
+        float hands = pos.y - LARA_HANG_OFFSET;
+        float d     = side * (LADDER_STEP + LADDER_HAND_OFFSET);
+        return ladderWall(hands + 64.0f, d) || ledgeAt(hands, d);
     }
 
     bool ladderCanExit() {
@@ -3291,6 +3344,16 @@ struct Lara : Character {
             float y = ladderSnap(pos.y);
             pos.y += clamp(y - pos.y, -4.0f, 4.0f);
 
+            // the feet have no wall (moved sideways onto a wall that ends higher, or grabbed it from a jump)
+            if (!ladderFeet(pos.y) && ladderGrip(pos.y - 768.0f))
+                return ladderToHang();
+            // Back at the lower end of the wall: hang by the hands (TR2 climb stance -> hang)
+            if ((input & BACK) && !ladderCanDown(pos.y) && ladderGrip(pos.y - 512.0f) && !ladderFeet(pos.y + 256.0f)) {
+                vec3 p = vec3(pos.x, pos.y - 512.0f, pos.z);
+                if (ladderColumn(p).floor >= pos.y + 256.0f)
+                    return ladderToHang();
+            }
+
             if (input & JUMP)
                 return STATE_BACK_JUMP;
             if ((input & LEFT)  && ladderCanSide(-1.0f)) return STATE_CLIMB_LEFT;
@@ -3307,6 +3370,11 @@ struct Lara : Character {
             return STATE_CLIMB_START;
         }
 
+        if (state == STATE_CLIMB_LEFT || state == STATE_CLIMB_RIGHT) {
+            // moving sideways off the part of the wall that holds the feet: hang by the hands and go on (TR2 M_SideLadder)
+            if (!ladderFeet(pos.y) && ladderGrip(pos.y - 768.0f))
+                return ladderToHang();
+        }
         if (state == STATE_CLIMB_LEFT)
             return ((input & LEFT)  && ladderCanSide(-1.0f)) ? state : int(STATE_CLIMB_START);
         if (state == STATE_CLIMB_RIGHT)
@@ -3526,6 +3594,11 @@ struct Lara : Character {
         if (state == STATE_HANG_UP && animation.index == ANIM_LADDER_EXIT)
             return state;
 
+        if (isLadderHang()) {
+            if ((input & LEFT)  && ladderHangSide(-1.0f)) return STATE_HANG_LEFT;
+            if ((input & RIGHT) && ladderHangSide( 1.0f)) return STATE_HANG_RIGHT;
+            if (input & (LEFT | RIGHT)) return STATE_HANG;
+        }
         if (input & LEFT)  return STATE_HANG_LEFT;
         if (input & RIGHT) return STATE_HANG_RIGHT;
         if (input & FORTH) {
@@ -3535,10 +3608,10 @@ struct Lara : Character {
             if (info.floor - info.ceiling >= LARA_HEIGHT)
                 return (input & WALK) ? STATE_HANDSTAND : STATE_HANG_UP;            
         }
-        if ((input & FORTH) && hasLadders() && state == STATE_HANG && ladderGrip(pos.y - 700.0f))
+        if ((input & FORTH) && hasLadders() && state == STATE_HANG && ladderGrip(pos.y - 700.0f) && ladderFeet(ladderSnap(pos.y + 768.0f - LARA_HANG_OFFSET)))
             return STATE_CLIMB_START;
         // hanging on the top edge of a climbable wall: back puts the feet on the wall below
-        if ((input & BACK) && hasLadders() && state == STATE_HANG && ladderGrip(pos.y - 700.0f) && ladderGrip(pos.y - 256.0f))
+        if ((input & BACK) && hasLadders() && state == STATE_HANG && ladderGrip(pos.y - 700.0f) && ladderGrip(pos.y - 256.0f) && ladderFeet(ladderSnap(pos.y + 768.0f - LARA_HANG_OFFSET)))
             return STATE_CLIMB_START;
         return STATE_HANG;
     }
@@ -4323,7 +4396,10 @@ struct Lara : Character {
                         getFloorInfo(getRoomIndex(), pos, info);
 
                     vec3 v(sinf(angleExt), 0.0f, cosf(angleExt));
-                    velocity = info.getSlant(v) * speed;
+                    if (stand == STAND_HANG && hasLadders())
+                        velocity = v * speed; // shimmy along the edge: the slope of a sloped ledge (awnings) pushed her into it
+                    else
+                        velocity = info.getSlant(v) * speed;
                 }
                 break;
             }
@@ -4499,11 +4575,34 @@ struct Lara : Character {
 
         bool standHang = stand == STAND_HANG && state != STATE_HANG_UP && state != STATE_HANDSTAND;
 
+        if (standHang && isLadderHang()) { // hanging on a climbable wall: no ledge for the hang collision, the wall holds her
+            vec3 d = vel;
+            d.y = 0.0f;
+            if ((state == STATE_HANG_LEFT && !ladderHangSide(-1.0f)) || (state == STATE_HANG_RIGHT && !ladderHangSide(1.0f)))
+                d = vec3(0.0f);
+            pos += d;
+            collision = Collision();
+            updateRoom();
+            return;
+        }
+
+        int hangSlope = 0; // TR2: the climb a slope in front of the hands makes within the reach of the hang tests
         if (standHang) {
             maxHeight = 0;
             maxAscent = maxDescent = 64;
             offset    = getDir() * (LARA_RADIUS + 32.0f);
             offset.y  -= LARA_HANG_OFFSET + 32;
+            if (hasLadders()) {
+                // hanging at the low edge of a steep slope (Venice and Bartoli awnings): the floor sampled in front of
+                // the hands is already up the slope, which read as a wall and stopped every shimmy
+                TR::Level::FloorInfo fi;
+                vec3 dir = getDir();
+                getFloorInfo(getRoomIndex(), pos + offset, fi);
+                float rise = fabsf(fi.slantX * dir.x + fi.slantZ * dir.z) * 0.25f * (LARA_RADIUS + 32.0f);
+                hangSlope = int(min(rise, 192.0f));
+                maxAscent  = 64 + hangSlope;
+                maxDescent = maxAscent + 1; // not equal: Collision takes a steep slope for a wall when they are (walking rule)
+            }
         }
         if (stand == STAND_UNDERWATER) {
             offset.y += LARA_HEIGHT_WATER * 0.5f;
@@ -4520,7 +4619,7 @@ struct Lara : Character {
             offset.x = offset.z = 0.0f;
             minHeight  = LARA_HANG_OFFSET;
             maxDescent = 0xFFFFFF;
-            maxAscent  = -LARA_HANG_OFFSET;
+            maxAscent  = -LARA_HANG_OFFSET + hangSlope; // a sloped ledge rises a little within Lara's radius
             vec3 p = pos;
             collision  = Collision(this, room, p, offset, vec3(0.0f), radius, angleExt, minHeight, maxHeight, maxAscent, maxDescent);
             if (collision.side == Collision::FRONT)
@@ -4575,8 +4674,11 @@ struct Lara : Character {
                         } else {
                             animation.setAnim(isLeftFoot ? ANIM_SMASH_RUN_LEFT : ANIM_SMASH_RUN_RIGHT);
                         }
-                    } else if (stand == STAND_HANG)
-                        animation.setAnim(ANIM_HANG, -21);
+                    } else if (stand == STAND_HANG) {
+                        // a sideways shimmy along a sloped ledge reads its slope as a front wall: only stop on a real push into it
+                        if (!(hasLadders() && collision.side == Collision::NONE))
+                            animation.setAnim(ANIM_HANG, -21);
+                    }
                     else if (state != STATE_ROLL_START && state != STATE_ROLL_END)
                         animation.setAnim((state == STATE_RUN || state == STATE_WALK) ? (isLeftFoot ? ANIM_STAND_LEFT : ANIM_STAND_RIGHT) : ANIM_STAND);
                     velocity.x = velocity.z = 0.0f;
