@@ -36,7 +36,6 @@
 #define ZIPLINE_GRAB_POS    371.0f // TR2 AlignLaraPosition offset from the handle origin
 #define ZIPLINE_GRAB_MIN    0.0f
 #define ZIPLINE_GRAB_MAX    640.0f
-#define ZIPLINE_RANGE       512.0f
 #define ZIPLINE_SPEED_MAX   100.0f
 #define ZIPLINE_ACCEL       5.0f
 #define DETONATOR_FRAME     80
@@ -2822,13 +2821,7 @@ struct Lara : Character {
             zipline->pos = pos;
             zipline->roomIndex = roomIndex;
 
-            vec3 p = pos + dir * ZIPLINE_RANGE;
-            int16 room = getRoomIndex();
-            level->getSector(room, p);
-            TR::Level::FloorInfo info;
-            getFloorInfo(room, p, info);
-
-            if (!(input & ACTION) || health <= 0.0f || info.floor <= pos.y + 256.0f || info.ceiling >= pos.y - 256.0f)
+            if (!(input & ACTION) || health <= 0.0f || zipline->blocked(pos, getRoomIndex()))
                 ziplineRelease();
         } else if (animation.index != ANIM_ZIPLINE_GRAB) {
             ziplineRelease();
@@ -2905,11 +2898,13 @@ struct Lara : Character {
             vec3  d     = pos - c->pos;
             float along = d.dot(dir);
             float side  = d.x * dir.z - d.z * dir.x;
-            if (along < 292.0f - 64.0f || along > 512.0f + 64.0f || fabsf(side) > 220.0f || fabsf(d.y) > 256.0f || getDir().dot(dir) > -0.85f)
+            // TRX switch.c: Lara stands 292..512 ahead of the wheel's origin (right at the door) and looks the same way as the wheel
+            // (+-30 deg), i.e. at the door; she is then aligned to 212 ahead, facing the door
+            if (along < 292.0f - 96.0f || along > 512.0f + 64.0f || fabsf(side) > 220.0f || fabsf(d.y) > 256.0f || getDir().dot(dir) < 0.866f)
                 continue;
             pos.x   = c->pos.x + dir.x * 212.0f;
             pos.z   = c->pos.z + dir.z * 212.0f;
-            angle.y = clampAngle(c->angle.y + PI);
+            angle.y = c->angle.y;
             velocity = vec3(0.0f);
             detonator = c;
             detonated = true; // no plunger trigger: the switch trigger does the rest

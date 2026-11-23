@@ -1988,6 +1988,8 @@ struct Bullet : Controller {
 // a wire with a handle, Lara rides it (see Lara::updateZipline)
 #define ZIPLINE_HANDLE_SPEED_MAX 100.0f
 #define ZIPLINE_HANDLE_ACCEL     5.0f
+#define ZIPLINE_PROBE            256.0f
+#define ZIPLINE_PROBE_Y          -192.0f
 
 struct ZiplineHandle : Controller {
     vec3  home;
@@ -2001,6 +2003,19 @@ struct ZiplineHandle : Controller {
         roomIndex = homeRoom;
         speed     = 0.0f;
         animation.setAnim(0);
+    }
+
+    // TRX zipline.c: the ride ends where the way ahead is blocked (floor or ceiling within a step of the probe).
+    // The handle position here is where Lara hangs, about 1024 further on than TR2's item position, so TR2's
+    // probe (1024 ahead, 64 down) is ZIPLINE_PROBE ahead and ZIPLINE_PROBE_Y up here: the ride ends in front
+    // of a passage (Lara's Home) instead of inside its wall.
+    bool blocked(const vec3 &at, int16 room) {
+        vec3 p = at + getDir() * ZIPLINE_PROBE;
+        p.y += ZIPLINE_PROBE_Y;
+        level->getSector(room, p);
+        TR::Level::FloorInfo info;
+        getFloorInfo(room, p, info);
+        return info.floor <= p.y + 256.0f || info.ceiling >= p.y - 256.0f;
     }
 
     // Lara let go: the handle runs on to the end of the wire, then it is back at the start for another ride
@@ -2021,13 +2036,7 @@ struct ZiplineHandle : Controller {
         pos.y += speed * 0.25f * frame;
         updateRoom();
 
-        vec3 p = pos + dir * 1024.0f;
-        p.y += 64.0f;
-        int16 room = getRoomIndex();
-        level->getSector(room, p);
-        TR::Level::FloorInfo info;
-        getFloorInfo(room, p, info);
-        if (info.floor <= p.y + 256.0f || info.ceiling >= p.y - 256.0f) { // the end of the wire
+        if (blocked(pos, getRoomIndex())) { // the end of the wire
             game->playSound(281, pos, Sound::PAN); // TR2 zipline_stop
             goHome();
             deactivate(true);
