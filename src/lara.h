@@ -382,6 +382,7 @@ struct Lara : Character {
     float       ziplineSpeed;
     Controller *detonator;
     bool        detonated;
+    Controller *airlockFire; // airlock wheel whose switch trigger fires now (airlockUse)
     float       levelEndTimer;
     int         detonatorAnim;
     int         detonatorFrame;
@@ -574,6 +575,7 @@ struct Lara : Character {
         vehicleStart   = true;
         zipline     = NULL;
         detonator   = NULL;
+        airlockFire = NULL;
         flareTimer  = 0.0f;
         levelEndTimer = 0.0f;
         flareRoom   = -1;
@@ -2216,6 +2218,13 @@ struct Lara : Character {
                     }
                 }
 
+                if (airlock) { // TRX Switch_Trigger: an airlock fires once, as Lara starts to turn its wheel (airlockUse)
+                    if (controller != airlockFire)
+                        return;
+                    airlockFire = NULL;
+                    break;
+                }
+
                 if (!controller->setTimer(timer))
                     return;
 
@@ -2912,6 +2921,10 @@ struct Lara : Character {
             detonatorAnim = anim;
             animation.setAnim(detonatorAnim);
             detonatorFrame = 0;
+            // the door opens while Lara turns the wheel (its open animation starts with the turn, as in TR2)
+            airlockFire = c;
+            checkTrigger(this, false);
+            airlockFire = NULL;
             return true;
         }
         return false;
