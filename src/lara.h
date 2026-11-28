@@ -1230,6 +1230,9 @@ struct Lara : Character {
 
             int room;
             vec3 hit = trace(getRoomIndex(), p, t, room, false);
+            float door = doorOnLine(p, hit);
+            if (door >= 0.0f)
+                hit = p + (hit - p) * door; // the bullet stops at the closed door
             if (hasLadders())
                 shootWindows(p, hit);
             if (wpnCurrent == TR::Entity::GRENADE)
@@ -1659,10 +1662,30 @@ struct Lara : Character {
             target2 = target1;
     }
 
+    // TR2: a closed door stops aiming and bullets. The trace above only sees the door's blocked sector and
+    // allows 512 of slack at the target, so an enemy right behind a door was hit through it (Diving Area).
+    // Returns the fraction of from..to where a door's box is crossed, or -1.
+    float doorOnLine(const vec3 &from, const vec3 &to) {
+        if (!hasLadders())
+            return -1.0f;
+        vec3  v = to - from;
+        float best = -1.0f;
+        for (int i = 0; i < level->entitiesBaseCount; i++) {
+            TR::Entity &e = level->entities[i];
+            if (!e.controller || e.type < TR::Entity::DOOR_1 || e.type > TR::Entity::DOOR_8)
+                continue;
+            Controller *c = (Controller*)e.controller;
+            float t;
+            if (c->getBoundingBoxLocal().intersect(c->getMatrix(), from, v, t) && t >= 0.0f && t <= 1.0f && (best < 0.0f || t < best))
+                best = t;
+        }
+        return best;
+    }
+
     bool checkOcclusion(const vec3 &from, const vec3 &to, float dist) {
         int room;
         vec3 d = trace(getRoomIndex(), from, to, room, false); // check occlusion
-        return ((d - from).length() > (dist - 512.0f));
+        return ((d - from).length() > (dist - 512.0f)) && doorOnLine(from, to) < 0.0f;
     }
 
     bool checkHit(Controller *target, const vec3 &from, const vec3 &to, vec3 &point) {
@@ -2685,8 +2708,13 @@ struct Lara : Character {
                 if ((input & (JUMP | FORTH | WALK)) == (JUMP | FORTH | WALK)) return STATE_SWAN_DIVE;
             }
         } else
-            if (state != STATE_FALL && state != STATE_FALL_BACK && state != STATE_SWAN_DIVE && state != STATE_FAST_DIVE && state != STATE_REACH && state != STATE_UP_JUMP && state != STATE_BACK_JUMP && state != STATE_LEFT_JUMP && state != STATE_RIGHT_JUMP)
-                return animation.setAnim(ANIM_FALL_FORTH);// (state == STATE_FAST_BACK || state == STATE_SLIDE_BACK || state == STATE_ROLL_2) ? ANIM_FALL_BACK :  ANIM_FALL_FORTH);
+            if (state != STATE_FALL && state != STATE_FALL_BACK && state != STATE_SWAN_DIVE && state != STATE_FAST_DIVE && state != STATE_REACH && state != STATE_UP_JUMP && state != STATE_BACK_JUMP && state != STATE_LEFT_JUMP && state != STATE_RIGHT_JUMP) {
+                // TR2 (TRX land.c): sliding backwards off the end of a slope she falls backwards, and Action
+                // then grabs the edge in front of her (Diving Area: the slope that ends above the hall)
+                if (hasLadders() && state == STATE_SLIDE_BACK)
+                    return animation.setAnim(ANIM_FALL_BACK);
+                return animation.setAnim(ANIM_FALL_FORTH);
+            }// (state == STATE_FAST_BACK || state == STATE_SLIDE_BACK || state == STATE_ROLL_2) ? ANIM_FALL_BACK :  ANIM_FALL_FORTH);
 
         if (state == STATE_SWAN_DIVE)
             return STATE_FAST_DIVE;
@@ -3416,7 +3444,14 @@ struct Lara : Character {
         vec3  p   = pos + vec3(dir.z, 0.0f, -dir.x) * d;
         p.y = pos.y - 512.0f;
         TR::Level::FloorInfo info = ladderColumn(p);
-        return info.floor >= pos.y && info.ceiling <= pos.y - LARA_HEIGHT && ladderWall(p.y, d);
+        if (info.floor < pos.y || info.ceiling > pos.y - LARA_HEIGHT)
+            return false;
+        if (ladderWall(p.y, d))
+            return true;
+        // TR2 M_SideLadder tests the room shape, not the climb flags: beside the wall there may be an opening
+        // with a floor just below Lara's feet (Diving Area, the passage at the top of the long ladder); she climbs
+        // into it and drops onto that floor when she lets go
+        return info.floor - pos.y <= 512.0f;
     }
 
     // TR2 tests the wall over Lara's whole body: the feet need it too (LaraTestClimbPos)

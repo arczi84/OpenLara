@@ -1837,6 +1837,29 @@ struct ClockChimes : Controller {
     }
 };
 
+// TR2 helicopter on a pad (Diving Area, TRX copter.c): its rotor spins until its trigger fires, then it takes
+// off and flies away; when the take-off animation is over it is gone (the pad's floor is lowered later)
+struct Helicopter : Controller {
+    enum { STATE_EMPTY, STATE_SPIN, STATE_TAKEOFF };
+
+    Helicopter(IGame *game, int entity) : Controller(game, entity) {
+        activate(); // the rotor turns from the start
+    }
+
+    virtual void update() {
+        if (state == STATE_SPIN && flags.active == TR::ACTIVE)
+            animation.setState(STATE_TAKEOFF);
+        updateAnimation(true);
+        game->playSound(TR::SND_HELICOPTER, pos, Sound::PAN | Sound::UNIQUE);
+        // the end of the take-off animation deactivates it (anim command KILL): it is gone
+        if (state == STATE_TAKEOFF && (animation.isEnded || flags.state != TR::Entity::asActive)) {
+            Sound::stop(TR::SND_HELICOPTER);
+            flags.invisible = true;
+            deactivate(true);
+        }
+    }
+};
+
 #define HELICOPTER_SPEED 3000
 #define HELICOPTER_RANGE (1024 * 30)
 
@@ -1984,6 +2007,39 @@ struct Bullet : Controller {
 #define LIFT_TRAVEL         5632.0f
 #define SPIKES_SPEED        8.0f
 #define ICICLE_DAMAGE       200.0f
+
+// TR2 dying monk (Diving Area end, TRX dying_monk.c): once the (up to two) enemies in his room are dead and
+// Lara stands next to him on the ground, the level is complete
+struct DyingMonk : Controller {
+    int roomies[2];
+
+    DyingMonk(IGame *game, int entity) : Controller(game, entity) {
+        roomies[0] = roomies[1] = -1;
+        int count = 0;
+        for (int i = 0; i < level->entitiesBaseCount && count < 2; i++) {
+            TR::Entity &e = level->entities[i];
+            if (i != entity && e.room == getEntity().room && e.isEnemy())
+                roomies[count++] = i;
+        }
+        activate();
+    }
+
+    virtual void update() {
+        updateAnimation(true);
+        for (int i = 0; i < 2; i++) {
+            if (roomies[i] < 0) continue;
+            Character *c = (Character*)level->entities[roomies[i]].controller;
+            if (c && c->health > 0.0f)
+                return;
+        }
+        Character *lara = (Character*)game->getLara(pos);
+        if (lara && lara->health > 0.0f && fabsf(lara->pos.x - pos.x) < 1024.0f && fabsf(lara->pos.z - pos.z) < 1024.0f
+            && lara->stand == Character::STAND_GROUND && fabsf(lara->pos.y - pos.y) < 1.0f) {
+            deactivate(true);
+            game->loadNextLevel();
+        }
+    }
+};
 
 // a wire with a handle, Lara rides it (see Lara::updateZipline)
 #define ZIPLINE_HANDLE_SPEED_MAX 100.0f
@@ -2167,6 +2223,11 @@ struct TrapTR2 : Controller {
         updateAnimation(true);
 
         bool active = isActive();
+        // TRX propeller.c: saws and propellers run while triggered and not spent; a one-shot trigger on them
+        // (Diving Area: the circuit board slot behind the saw) switches them off for good, the blade goes up
+        TR::Entity::Type type = getEntity().type;
+        if (flags.once && (type == TR::Entity::SAW || type == TR::Entity::PROPELLER_PLANE || type == TR::Entity::PROPELLER_WATER || type == TR::Entity::PROPELLER_AIR))
+            active = false;
         if (touchJoint >= 0) { // TR2 blades: a cut starts only from the set pose, then it returns and cuts again
             animation.setState((active && state == stateIdle) ? stateActive : stateIdle);
             if (state == stateActive && getModel() && touchJoint < getModel()->mCount) {

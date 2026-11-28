@@ -1430,8 +1430,8 @@ struct Level : IGame {
             case TR::Entity::ENEMY_MORAY_2          : return new EnemyTR2Swim(this, index);
             case TR::Entity::ENEMY_CROW             :
             case TR::Entity::ENEMY_EAGLE            : return new EnemyTR2Bird(this, index);
-            case TR::Entity::UNUSED_23              :
-            case TR::Entity::ENEMY_MONK_3           : return new Enemy(this, index, 100, 10, 0.0f, 0.0f);
+            case TR::Entity::UNUSED_23              : return new Enemy(this, index, 100, 10, 0.0f, 0.0f);
+            case TR::Entity::ENEMY_MONK_3           : return new DyingMonk(this, index); // TR2 dying monk (Diving Area end)
             case TR::Entity::ENEMY_WINSTON          : return new Winston(this, index);
 
             case TR::Entity::CRYSTAL_PICKUP         : return new CrystalPickup(this, index);
@@ -1445,6 +1445,7 @@ struct Level : IGame {
             case TR::Entity::VEHICLE_BOAT           : return new VehicleBoat(this, index);
 
             case TR::Entity::HELICOPTER_FLYING      : return new HelicopterFlying(this, index);
+            case TR::Entity::HELICOPTER             : return new Helicopter(this, index); // TR2 helicopter on a pad (Diving Area)
             case TR::Entity::SOUND_CLOCK            : return new ClockChimes(this, index);
 
             case TR::Entity::FISH_EMITTER           : return new DummyController(this, index);
